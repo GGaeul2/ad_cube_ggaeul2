@@ -2,6 +2,9 @@ import React, { useRef, useState, useEffect, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text, RoundedBox, Float, Image as DreiImage, Edges } from '@react-three/drei';
 
+import QRCode from 'qrcode'; 
+import * as THREE from 'three';
+
 // ✨ [이미지 컴포넌트] 로딩 중 깜빡임 방지를 위한 백드롭 추가
 const AdImage = ({ url, scale, position, fitMode = 'cover' }) => {
   // fitMode에 따라 스케일 조정 (contain이면 약간 축소해서 여백 확보)
@@ -19,7 +22,7 @@ const AdImage = ({ url, scale, position, fitMode = 'cover' }) => {
   );
 };
 
-// 📦 [큐브 내용물] 텍스트와 이미지를 담당 (여기가 데이터에 따라 바뀜)
+// 📦 [큐브 내용물] 텍스트와 이미지를 담당
 function CubeContent({ items, mode, isDarkMode }) {
   // 데이터 안전하게 가져오기
   const getList = (data) => {
@@ -34,7 +37,9 @@ function CubeContent({ items, mode, isDarkMode }) {
   };
 
   const [indexes, setIndexes] = useState({ top: 0, s1: 0, s2: 0, s3: 0, s4: 0 });
+  const [qrTexture, setQrTexture] = useState(null); // 🆕 QR 텍스처 상태 추가
 
+  // 1️⃣ 기존 타이머 로직
   useEffect(() => {
     const timer = setInterval(() => {
       setIndexes(prev => ({
@@ -48,12 +53,39 @@ function CubeContent({ items, mode, isDarkMode }) {
     return () => clearInterval(timer);
   }, [items]);
 
+  // 2️⃣ 🆕 진짜 QR코드 생성 로직 (여기가 핵심!)
+  useEffect(() => {
+    const generateQR = async () => {
+      try {
+        // 현재 웹사이트 주소 가져오기
+        const currentUrl = window.location.href;
+        
+        // QR 이미지를 데이터 주소(base64)로 변환
+        const dataUrl = await QRCode.toDataURL(currentUrl, {
+          width: 512,
+          margin: 1,
+          color: { dark: '#000000', light: '#ffffff' }
+        });
+
+        // Three.js 텍스처로 로드
+        new THREE.TextureLoader().load(dataUrl, (texture) => {
+          texture.colorSpace = THREE.SRGBColorSpace; // 색상 보정
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          setQrTexture(texture); // 상태 업데이트
+        });
+      } catch (err) {
+        console.error("QR 생성 실패:", err);
+      }
+    };
+    generateQR();
+  }, []); // 처음에 한 번만 실행
+
   const topTextColor = "#FFD700"; 
-  const premiumTextColor = "white"; // 프리미엄 배경 위 글씨는 항상 흰색
-  // ✨ [수정됨] 다크모드 상관없이 항상 흰색 글씨로 변경!
+  const premiumTextColor = "white"; 
   const commonTextColor = "#ffffff";
 
-  // --- 렌더링 헬퍼 ---
+  // --- 렌더링 헬퍼들 (기존과 동일) ---
   const renderBigFace = (sideData, idx, defaultLabel) => {
     const list = getList(sideData);
     const item = list[idx] || { title: "Coming Soon", image: null };
@@ -75,13 +107,11 @@ function CubeContent({ items, mode, isDarkMode }) {
     );
   };
 
-  // ✨ [수정됨] 일반 광고판 렌더링 (Coming Soon 추가)
   const renderNormalFace = (sideData, startIdx) => {
     const list = getList(sideData);
     const len = list.length || 1;
     
     const renderStrip = (item, yPos) => {
-      // 💡 데이터가 없으면(item이 비었으면) "Coming Soon" 출력
       const title = item.title || "Coming Soon"; 
       const imgUrl = item.image3d || item.image;
       const fit = item.fitMode3d || 'cover';
@@ -99,7 +129,6 @@ function CubeContent({ items, mode, isDarkMode }) {
 
     return (
       <group>
-        {/* 리스트가 비어있어서 undefined가 넘어가면 {} 빈 객체가 되고, 위에서 "Coming Soon"으로 변환됨 */}
         {renderStrip(list[startIdx % len] || {}, 1.2)}
         <Text position={[0, 0.6, 0.05]} fontSize={0.2} color="gray">----------</Text>
         {renderStrip(list[(startIdx + 1) % len] || {}, 0)}
@@ -128,8 +157,6 @@ function CubeContent({ items, mode, isDarkMode }) {
   };
 
   const dist = 1.8;
-  const currentUrl = window.location.href; 
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentUrl)}`;
 
   return (
     <group>
@@ -147,10 +174,19 @@ function CubeContent({ items, mode, isDarkMode }) {
           )}
         </group>
         
+        {/* 👇 [QR 코드 렌더링 부분] 이제 DreiImage 대신 Mesh를 사용함 */}
         <group position={[0, -dist, 0]} rotation={[Math.PI / 2, 0, 0]}>
            <Text fontSize={0.3} color="black" position={[0, 0.9, 0]} anchorX="center" anchorY="middle">Scan to Visit!</Text>
+           {/* 배경 흰판 */}
            <mesh position={[0, 0, -0.01]}><planeGeometry args={[2.2, 2.2]} /><meshBasicMaterial color="white" /></mesh>
-           <DreiImage url={qrCodeUrl} scale={[2, 2]} transparent />
+           
+           {/* 생성된 QR 텍스처가 있으면 보여줌 */}
+           {qrTexture && (
+             <mesh position={[0, 0, 0.01]}>
+               <planeGeometry args={[2, 2]} />
+               <meshBasicMaterial map={qrTexture} transparent />
+             </mesh>
+           )}
         </group>
     </group>
   );
