@@ -1379,54 +1379,20 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
 
 const CSPage = () => (<div><h1>고객센터</h1></div>);
 
-// 🚀 메인 App (스타일 주입 추가됨)
+// 🚀 메인 App (구조 재정렬 및 핵심 로직 수정)
 export default function App() {
   const [isDarkMode, setIsDarkMode] = usePersistedState('isDarkMode', false);
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
   const [tokens, setTokens] = usePersistedState('tokens', 0);
-  const defaultExpiry = addDays(new Date(), 30).toISOString();
   const [isLoggedIn, setIsLoggedIn] = usePersistedState('isLoggedIn', false);
   const [currentUser, setCurrentUser] = usePersistedState('currentUser', null);
   const [bannedUsers, setBannedUsers] = usePersistedState('bannedUsers', []);
-
-  // ✨ 신고 관련 state 추가
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState({ id: null, type: null });
-
-  // 🔑 로그인 처리
-  const handleLogin = async (email) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('email', email)
-        .single();
-
-      if (error || !data) {
-        setCurrentUser({ email, name: '알 수 없음', tokens: 0 });
-        setIsLoggedIn(true);
-      } else {
-        setCurrentUser(data); 
-        setIsLoggedIn(true);
-        setTokens(data.tokens || 0);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-  
-  // 🚪 로그아웃
-  const handleLogout = () => { 
-    setIsLoggedIn(false); 
-    setCurrentUser(null); 
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('tokens'); 
-  };
-  
-  const handleBanUser = () => { if (currentUser) { setBannedUsers((prev) => [...prev, currentUser.email]); setIsLoggedIn(false); setCurrentUser(null); } };
   const [adList, setAdList] = usePersistedState('adList', []);
   const [productList, setProductList] = usePersistedState('productList', []);
+
+  // 1. 태그 계산 로직
   const calculateTags = (products) => {
     return products.map((p) => {
       let tag = null; const today = new Date(); const pDate = new Date(p.date); const diffDays = Math.ceil(Math.abs(today - pDate) / (1000 * 60 * 60 * 24));
@@ -1436,20 +1402,35 @@ export default function App() {
   };
   const processedProductList = calculateTags(productList);
 
-  // 👇 [수정] 토큰 충전 함수 (DB값 확인하여 덮어쓰기 방지)
+  // 2. 로그인 함수
+  const handleLogin = async (email) => {
+    try {
+      const { data, error } = await supabase.from('profiles').select('*').eq('email', email).single();
+      if (error || !data) {
+        setCurrentUser({ email, name: '알 수 없음', tokens: 0 });
+        setIsLoggedIn(true);
+      } else {
+        setCurrentUser(data); 
+        setIsLoggedIn(true);
+        setTokens(data.tokens || 0);
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  // 3. 로그아웃 & 밴 함수
+  const handleLogout = () => { setIsLoggedIn(false); setCurrentUser(null); localStorage.removeItem('isLoggedIn'); localStorage.removeItem('currentUser'); localStorage.removeItem('tokens'); };
+  const handleBanUser = () => { if (currentUser) { setBannedUsers((prev) => [...prev, currentUser.email]); setIsLoggedIn(false); setCurrentUser(null); } };
+
+  // 4. [핵심] 토큰 충전 함수 (DB 확인 필수)
   const chargeTokens = async (amount) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
       
-      // DB에서 최신 토큰 값 가져오기
       const { data: profile, error: fetchError } = await supabase.from('profiles').select('tokens').eq('id', user.id).single();
       if (fetchError) throw fetchError;
 
-      const currentDBTokens = profile.tokens || 0;
-      const newTotal = currentDBTokens + amount;
-
-      // 계산된 값으로 업데이트
+      const newTotal = (profile.tokens || 0) + amount;
       const { error: updateError } = await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
       if (updateError) throw updateError;
 
@@ -1462,41 +1443,33 @@ export default function App() {
     }
   };
 
-  // 👇 [복구] 광고 등록 함수 (App 컴포넌트 내부에 있어야 함)
+  // 5. [핵심] 광고 등록 함수 (정의 위치 중요!)
   const registerAd = async (newAd) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const newTotal = tokens - newAd.price;
-      setTokens(newTotal); 
-      
-      if (user) {
-        await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
-      }
+      setTokens(newTotal);
+      if (user) await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
       
       const expiryDate = addDays(new Date(), newAd.duration).toISOString();
       setAdList((prev) => [{ id: Date.now(), ...newAd, views: 0, date: new Date().toISOString().split('T')[0], expiryDate, isMine: true }, ...prev]);
-    } catch (error) {
-      console.error("광고 등록 오류:", error);
-    }
+    } catch (error) { console.error("광고 등록 오류:", error); }
   };
 
-  // 👇 [복구] 상품 등록 함수 (App 컴포넌트 내부에 있어야 함)
+  // 6. [핵심] 상품 등록 함수
   const registerProduct = async (newProduct) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const newTotal = tokens - newProduct.fee;
-      setTokens(newTotal); 
-      
-      if (user) {
-        await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
-      }
+      setTokens(newTotal);
+      if (user) await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
       
       const expiryDate = addDays(new Date(), newProduct.duration).toISOString();
       setProductList((prev) => [{ id: Date.now(), ...newProduct, sales: 0, likes: 0, views: 0, date: new Date().toISOString().split('T')[0], expiryDate, isMine: true, isLiked: false }, ...prev]);
-    } catch (error) {
-      console.error("상품 등록 오류:", error);
-    }
+    } catch (error) { console.error("상품 등록 오류:", error); }
   };
+
+  // 7. 기타 헬퍼 함수들
   const deleteAd = (id) => setAdList((prev) => prev.filter((ad) => ad.id !== id));
   const deleteProduct = (id) => setProductList((prev) => prev.filter((p) => p.id !== id));
   const updateProductSale = (id, salePrice, saleDays) => {
@@ -1509,86 +1482,38 @@ export default function App() {
       return p;
     }));
   };
-  const toggleLike = (id) => { setProductList((prev) => prev.map((p) => { if (p.id === id) return { ...p, isLiked: !p.isLiked, likes: p.isLiked ? p.likes - 1 : p.likes + 1 }; return p; })); };
   const incrementView = (id, isAd = false) => {
     if (isAd) setAdList((prev) => prev.map((ad) => (ad.id === id ? { ...ad, views: ad.views + 1 } : ad)));
     else setProductList((prev) => prev.map((p) => (p.id === id ? { ...p, views: p.views + 1 } : p)));
   };
+  const toggleLike = (id) => { setProductList((prev) => prev.map((p) => { if (p.id === id) return { ...p, isLiked: !p.isLiked, likes: p.isLiked ? p.likes - 1 : p.likes + 1 }; return p; })); };
   const handleEditItem = (id, updatedData, type) => {
-    if (type === 'ad') { setAdList((prev) => prev.map((ad) => (ad.id === id ? { ...ad, ...updatedData } : ad))); }
-    else { setProductList((prev) => prev.map((p) => (p.id === id ? { ...p, ...updatedData } : p))); }
+    if (type === 'ad') setAdList((prev) => prev.map((ad) => (ad.id === id ? { ...ad, ...updatedData } : ad)));
+    else setProductList((prev) => prev.map((p) => (p.id === id ? { ...p, ...updatedData } : p)));
   };
-  const ProtectedRoute = ({ children }) => { if (!isLoggedIn) { return <Navigate to="/login" replace />; } return children; };
-
-  // ✨ 신고 모달 열기 함수
-  const openReportModal = (id, type) => {
-    if (!isLoggedIn) return alert("로그인이 필요한 기능입니다.");
-    setReportTarget({ id, type });
-    setReportModalOpen(true);
-  };
-
-  // ✨ 신고 제출 처리 함수 (여기에 ID를 넣어야 해!)
+  
+  const openReportModal = (id, type) => { if (!isLoggedIn) return alert("로그인이 필요합니다."); setReportTarget({ id, type }); setReportModalOpen(true); };
   const submitReport = async (reason) => {
     try {
-      // 1. Supabase DB에 저장
-      const { error } = await supabase.from('reports').insert([
-        {
-          target_id: reportTarget.id,
-          target_type: reportTarget.type,
-          reason: reason,
-          reporter_email: currentUser?.email || 'anonymous'
-        }
-      ]);
-
+      const { error } = await supabase.from('reports').insert([{ target_id: reportTarget.id, target_type: reportTarget.type, reason, reporter_email: currentUser?.email || 'anonymous' }]);
       if (error) throw error;
-
-      // 2. 📧 내 메일로 알림 보내기 (EmailJS)
-      // 👇 [중요] 아까 메모한 값들을 여기에 복사+붙여넣기 해!
-      const SERVICE_ID = 'service_5c5lawj';   // 예: service_8a2k1d
-      const TEMPLATE_ID = 'template_czfiz4e'; // 예: template_b9s3x2
-      const PUBLIC_KEY = '_65YQMzv3f_w96uia';      // 예: Public Key (긴 영어+숫자)
-
-      const templateParams = {
-        reporter: currentUser?.email || '익명',
-        reason: reason,
-        target_id: `${reportTarget.type} #${reportTarget.id}`,
-        message: `관리자님, 새로운 신고가 들어왔습니다. 확인해주세요!`
-      };
-
-      await emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams, PUBLIC_KEY);
-
-      alert("🚨 신고가 접수되었습니다.\n관리자에게 메일로 알림이 전송되었습니다.");
-      setReportModalOpen(false);
-
-    } catch (error) {
-      console.error("신고 오류:", error);
-      alert("신고는 접수되었으나 메일 발송에 실패했습니다. (DB 저장 완료)");
-    }
+      const templateParams = { reporter: currentUser?.email || '익명', reason, target_id: `${reportTarget.type} #${reportTarget.id}`, message: "새로운 신고 접수" };
+      await emailjs.send('service_5c5lawj', 'template_czfiz4e', templateParams, '_65YQMzv3f_w96uia');
+      alert("신고가 접수되었습니다."); setReportModalOpen(false);
+    } catch (error) { console.error(error); alert("신고 접수 오류 (DB 저장됨)"); }
   };
 
-  const theme = isDarkMode ? themes.dark : themes.light; // 모달에 테마 전달용
+  const ProtectedRoute = ({ children }) => { if (!isLoggedIn) return <Navigate to="/login" replace />; return children; };
+  const theme = isDarkMode ? themes.dark : themes.light;
 
   return (
     <Router>
-      {/* ✨ [핵심 수정] 여기에 globalStyles를 넣어야 입력창 튀어나옴 현상이 해결됨! */}
       <style>{globalStyles}</style>
-
-      {/* ✨ 신고 모달 연결 */}
-      <ReportModal 
-        isOpen={reportModalOpen} 
-        onClose={() => setReportModalOpen(false)} 
-        onSubmit={submitReport} 
-        theme={theme} 
-      />
-
+      <ReportModal isOpen={reportModalOpen} onClose={() => setReportModalOpen(false)} onSubmit={submitReport} theme={theme} />
       <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme} tokens={tokens} isLoggedIn={isLoggedIn} user={currentUser} onLogout={handleLogout}>
         <Routes>
-          {/* 👇 [수정 1] AdPage에 onReport 전달 추가 */}
           <Route path="/" element={<AdPage isDarkMode={isDarkMode} adList={adList} onAdClick={(id) => incrementView(id, true)} onReport={openReportModal} />} />
-          
-          {/* 👇 [수정 2] ShopPage에 onReport 전달 추가 */}
           <Route path="/shop" element={<ShopPage isDarkMode={isDarkMode} productList={processedProductList} onToggleLike={toggleLike} onProductClick={(id) => incrementView(id, false)} onReport={openReportModal} />} />
-          
           <Route path="/login" element={<LoginPage isDarkMode={isDarkMode} onLogin={handleLogin} />} />
           <Route path="/signup" element={<SignUpPage isDarkMode={isDarkMode} />} />
           <Route path="/register-ad" element={<ProtectedRoute><RegisterAdPage isDarkMode={isDarkMode} tokens={tokens} onRegister={registerAd} onBan={handleBanUser} /></ProtectedRoute>} />
