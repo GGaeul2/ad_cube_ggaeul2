@@ -1011,7 +1011,7 @@ const RegisterProductPage = ({ isDarkMode, tokens, onRegister, onBan }) => {
   );
 };
 
-// 💰 토큰 페이지 (수정됨: 제목 깔끔하게 정리, 내 정보 연동 유지)
+// 💰 토큰 페이지 (수정됨: 모바일 복귀 시 자동 충전 로직 추가)
 const TokenPage = ({ isDarkMode, onCharge, user }) => {
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -1022,78 +1022,80 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     { id: 3, amount: 10000, bonus: 3000, price: 10000, color: '#FFD700' },
     { id: 4, amount: 50000, bonus: 15000, price: 50000, color: '#00ccff' },
   ];
-  // 👇 [추가] 결제 후 돌아왔을 때 실행되는 코드 (여기에 붙여넣기!)
+
+  // ✨ [추가] 모바일 결제 후 돌아왔을 때 처리
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    // 주소창에 paymentId가 있다는 건 결제하고 돌아왔다는 뜻!
-    if (urlParams.get('paymentId')) {
-      alert("결제가 정상적으로 처리되었습니다! 🎉");
-      // 지저분한 주소창 정리 (paymentId 제거)
+    const paymentId = urlParams.get('paymentId');
+    const amountStr = urlParams.get('amount'); // URL에서 충전량 가져오기
+
+    if (paymentId && amountStr) {
+      const amountToAdd = parseInt(amountStr, 10);
+      alert(`결제가 정상적으로 처리되었습니다! 🎉\n(${amountToAdd.toLocaleString()}T 충전 완료)`);
+      
+      onCharge(amountToAdd); // ✨ 실제로 토큰 추가 함수 실행!
+
+      // URL 청소 (새로고침 시 중복 충전 방지)
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
 
-  // 💰 [TokenPage 수정] handlePayment 함수 전체를 이걸로 교체해!
-const handlePayment = async (pkg) => {
-  if (!window.PortOne) {
-    alert("결제 시스템을 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
-    return;
-  }
-
-  try {
-    const response = await window.PortOne.requestPayment({
-      storeId: "store-15bf6eb3-5f70-4e99-a52e-065074dc1bbb", 
-      channelKey: "channel-key-44cc627e-0d0a-4450-a472-51e9a714b003", 
-      paymentId: `payment-${crypto.randomUUID()}`,
-      orderName: `${pkg.amount}T 토큰 충전`,
-      totalAmount: pkg.price,
-      currency: "CURRENCY_KRW",
-      payMethod: "CARD",
-      
-      // ✨ [모바일 오류 해결 핵심] 결제 후 돌아올 주소 지정 (필수!)
-      redirectUrl: window.location.href, 
-      
-      customer: {
-        fullName: user?.name || "익명", 
-        phoneNumber: user?.phone || "010-0000-0000", 
-        email: user?.email || "no-email@adcube.com", 
-      },
-    });
-
-    // 🚨 포트원 V2는 모바일 리다이렉트 시 response가 null일 수 있어서 예외 처리
-    if (!response && /Mobi|Android/i.test(navigator.userAgent)) {
-       // 모바일은 리다이렉트되므로 여기서 멈춤 (돌아오면 페이지 새로고침됨)
-       return; 
+  const handlePayment = async (pkg) => {
+    if (!window.PortOne) {
+      alert("결제 시스템을 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
+      return;
     }
 
-    if (response && response.code != null) {
-      return alert(`결제 실패: ${response.message}`);
-    }
+    try {
+      // 충전할 총 토큰 양 (보너스 포함)
+      const totalTokens = pkg.amount + pkg.bonus;
 
-    // PC 결제 성공 시 로직
-    alert(`🎉 결제 성공! ${pkg.amount + pkg.bonus}T가 충전됩니다.`);
-    onCharge(pkg.amount + pkg.bonus);
+      const response = await window.PortOne.requestPayment({
+        storeId: "store-15bf6eb3-5f70-4e99-a52e-065074dc1bbb", 
+        channelKey: "channel-key-44cc627e-0d0a-4450-a472-51e9a714b003", 
+        paymentId: `payment-${crypto.randomUUID()}`,
+        orderName: `${pkg.amount}T 토큰 충전`,
+        totalAmount: pkg.price,
+        currency: "CURRENCY_KRW",
+        payMethod: "CARD",
+        
+        // ✨ [핵심] 돌아올 때 '얼마 충전했는지(amount)' 정보를 URL에 달아서 보냄!
+        redirectUrl: `${window.location.href}?amount=${totalTokens}`, 
+        
+        customer: {
+          fullName: user?.name || "익명", 
+          phoneNumber: user?.phone || "010-0000-0000", 
+          email: user?.email || "no-email@adcube.com", 
+        },
+      });
 
-  } catch (error) {
-    console.error("결제 중 오류 발생:", error);
-    // 모바일 리다이렉트 중에는 에러가 아니라 이동 중일 수 있음
-    if (!/Mobi|Android/i.test(navigator.userAgent)) {
-       alert("결제 시스템 오류가 발생했습니다.");
+      // 모바일은 여기서 리다이렉트 되므로 아래 코드는 실행 안 됨 (useEffect가 처리함)
+      if (!response && /Mobi|Android/i.test(navigator.userAgent)) return; 
+
+      if (response && response.code != null) {
+        return alert(`결제 실패: ${response.message}`);
+      }
+
+      // PC 결제 성공 시
+      alert(`🎉 결제 성공! ${totalTokens.toLocaleString()}T가 충전됩니다.`);
+      onCharge(totalTokens);
+
+    } catch (error) {
+      console.error("결제 중 오류 발생:", error);
+      if (!/Mobi|Android/i.test(navigator.userAgent)) {
+         alert("결제 시스템 오류가 발생했습니다.");
+      }
     }
-  }
-};
+  };
+
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
-      {/* ✨ [수정됨] (V2) 텍스트 삭제 & 깨지지 않는 아이콘 사용 */}
       <h1 style={{ fontSize: '32px', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
         토큰 충전소 <Coins size={32} color="#FFD700" />
       </h1>
-      
-      {/* 설명 문구도 깔끔하게 수정 */}
       <p style={{ marginBottom: '30px', color: theme.secondaryText }}>
         원하는 만큼 토큰을 충전해보세요.
       </p>
-      
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
         {packages.map((pkg) => (
           <div key={pkg.id} 
@@ -1460,26 +1462,29 @@ export default function App() {
     });
   };
   const processedProductList = calculateTags(productList);
-  // 1. 토큰 충전 함수 (DB 저장 추가됨)
+  // 1. 토큰 충전 함수 (수정됨: 안전한 ID 조회)
   const chargeTokens = async (amount) => {
     const newTotal = tokens + amount;
-    setTokens(newTotal); // 화면 업데이트
+    setTokens(newTotal); // 화면 즉시 반영
 
-    if (currentUser) {
-      await supabase.from('profiles').update({ tokens: newTotal }).eq('id', currentUser.id);
+    try {
+      // ✨ [핵심 수정] currentUser 상태 대신, Supabase에서 직접 확실한 ID를 가져옴
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user) {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ tokens: newTotal })
+          .eq('id', user.id); // 이제 id가 undefined가 되지 않음!
+
+        if (error) {
+          console.error("토큰 DB 업데이트 실패:", error);
+          alert("오류: 토큰이 저장되지 않았습니다. 관리자에게 문의하세요.");
+        }
+      }
+    } catch (err) {
+      console.error(err);
     }
-  };
-  // 2. 광고 등록 함수 (DB 차감 추가됨)
-  const registerAd = async (newAd) => {
-    const newTotal = tokens - newAd.price;
-    setTokens(newTotal); // 화면 차감
-
-    if (currentUser) {
-      await supabase.from('profiles').update({ tokens: newTotal }).eq('id', currentUser.id);
-    }
-
-    const expiryDate = addDays(new Date(), newAd.duration).toISOString();
-    setAdList((prev) => [{ id: Date.now(), ...newAd, views: 0, date: new Date().toISOString().split('T')[0], expiryDate, isMine: true }, ...prev]);
   };
   // 3. 상품 등록 함수 (DB 차감 추가됨)
   const registerProduct = async (newProduct) => {
