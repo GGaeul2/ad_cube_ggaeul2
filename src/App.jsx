@@ -1427,12 +1427,23 @@ export default function App() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
       
-      const { data: profile, error: fetchError } = await supabase.from('profiles').select('tokens').eq('id', user.id).single();
+      // .maybeSingle()을 써서 데이터가 없어도 에러가 안 나게 함
+      const { data: profile, error: fetchError } = await supabase.from('profiles').select('tokens').eq('id', user.id).maybeSingle();
       if (fetchError) throw fetchError;
 
-      const newTotal = (profile.tokens || 0) + amount;
-      const { error: updateError } = await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
-      if (updateError) throw updateError;
+      let newTotal = 0;
+
+      if (!profile) {
+        // 프로필이 없으면? 새로 만들면서 토큰 넣기!
+        newTotal = amount;
+        const { error: insertError } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, tokens: newTotal }]);
+        if (insertError) throw insertError;
+      } else {
+        // 프로필이 있으면? 기존 값에 더하기!
+        newTotal = (profile.tokens || 0) + amount;
+        const { error: updateError } = await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
+        if (updateError) throw updateError;
+      }
 
       setTokens(newTotal);
       if (currentUser) setCurrentUser(prev => ({ ...prev, tokens: newTotal }));
