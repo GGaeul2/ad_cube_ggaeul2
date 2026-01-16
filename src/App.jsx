@@ -1126,35 +1126,57 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
     } catch (error) { console.error(error); alert("전송 실패.."); } finally { setIsSending(false); }
   };
 
-  // ✨ 쿠폰 사용 로직
+  // ✨ [수정됨] 쿠폰 사용 로직 (이메일 영구 기록 확인 추가)
   const handleUseCoupon = async () => {
     if (!couponCode.trim()) return alert("코드를 입력해주세요!");
+    
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
 
-      // 1. 쿠폰 확인
+      // 1. 쿠폰 유효성 확인
       const { data: coupon, error: couponError } = await supabase.from('coupons').select('*').eq('code', couponCode.toUpperCase()).eq('is_active', true).maybeSingle();
       if (couponError) throw couponError;
-      if (!coupon) return alert("유효하지 않은 쿠폰입니다. 🤔");
+      if (!coupon) return alert("유효하지 않거나 만료된 쿠폰입니다. 🤔");
 
-      // 2. 중복 사용 확인
+      // 2. [기존] 현재 계정 ID로 중복 확인
       const { data: used, error: usedError } = await supabase.from('used_coupons').select('*').eq('user_id', user.id).eq('coupon_code', coupon.code).maybeSingle();
       if (usedError) throw usedError;
       if (used) return alert("이미 사용한 쿠폰입니다! 🙅‍♂️");
 
-      // 3. 지급 및 기록
-      await onCharge(coupon.amount);
-      await supabase.from('used_coupons').insert([{ user_id: user.id, coupon_code: coupon.code }]);
+      // 3. ✨ [NEW] 이메일로 '영구 기록' 확인 (탈퇴 후 재가입 꼼수 방지)
+      const { data: emailUsed, error: emailError } = await supabase
+        .from('permanent_coupon_logs')
+        .select('*')
+        .eq('email', user.email) // 현재 로그인한 이메일로 검색
+        .eq('coupon_code', coupon.code)
+        .maybeSingle();
+
+      if (emailError) throw emailError;
       
-      alert(`🎉 쿠폰 적용 완료! ${coupon.amount.toLocaleString()}T 지급됨.`);
+      // 🚨 이미 이 이메일로 쓴 적이 있다면? 차단!
+      if (emailUsed) {
+        return alert(`[중복 안내]\n'${user.email}' 이메일로 이미 혜택을 받으셨네요!\n(탈퇴 후 재가입하셔도 쿠폰은 1회만 가능합니다 😜)`);
+      }
+
+      // 4. 지급 실행
+      await onCharge(coupon.amount);
+
+      // 5. 기록 남기기 (두 군데 다 저장!)
+      // (1) 현재 계정 기록 (세션용)
+      await supabase.from('used_coupons').insert([{ user_id: user.id, coupon_code: coupon.code }]);
+      // (2) ✨ 이메일 영구 기록 (박제!)
+      await supabase.from('permanent_coupon_logs').insert([{ email: user.email, coupon_code: coupon.code }]);
+      
+      alert(`🎉 쿠폰 적용 완료! ${coupon.amount.toLocaleString()}T가 지급되었습니다.`);
       setCouponCode('');
+
     } catch (error) {
       console.error(error);
       alert("쿠폰 적용 중 오류가 발생했습니다.");
     }
   };
-
+  
   // 나머지 헬퍼 함수들 (기존 유지)
   const startSaleEdit = (product) => { setEditingSaleId(product.id); setSaleForm({ price: product.discountPrice || product.price * 0.9, days: 7 }); };
   const submitSale = (id) => { onUpdateProductSale(id, parseInt(saleForm.price), parseInt(saleForm.days)); setEditingSaleId(null); };
