@@ -1023,48 +1023,55 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     { id: 4, amount: 50000, bonus: 15000, price: 50000, color: '#00ccff' },
   ];
 
-  // 💰 TokenPage 컴포넌트 안의 handlePayment 함수만 이걸로 교체해!
-  const handlePayment = async (pkg) => {
-    if (!window.PortOne) {
-      alert("결제 시스템을 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
-      return;
+  // 💰 [TokenPage 수정] handlePayment 함수 전체를 이걸로 교체해!
+const handlePayment = async (pkg) => {
+  if (!window.PortOne) {
+    alert("결제 시스템을 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
+    return;
+  }
+
+  try {
+    const response = await window.PortOne.requestPayment({
+      storeId: "store-15bf6eb3-5f70-4e99-a52e-065074dc1bbb", 
+      channelKey: "channel-key-44cc627e-0d0a-4450-a472-51e9a714b003", 
+      paymentId: `payment-${crypto.randomUUID()}`,
+      orderName: `${pkg.amount}T 토큰 충전`,
+      totalAmount: pkg.price,
+      currency: "CURRENCY_KRW",
+      payMethod: "CARD",
+      
+      // ✨ [모바일 오류 해결 핵심] 결제 후 돌아올 주소 지정 (필수!)
+      redirectUrl: window.location.href, 
+      
+      customer: {
+        fullName: user?.name || "익명", 
+        phoneNumber: user?.phone || "010-0000-0000", 
+        email: user?.email || "no-email@adcube.com", 
+      },
+    });
+
+    // 🚨 포트원 V2는 모바일 리다이렉트 시 response가 null일 수 있어서 예외 처리
+    if (!response && /Mobi|Android/i.test(navigator.userAgent)) {
+       // 모바일은 리다이렉트되므로 여기서 멈춤 (돌아오면 페이지 새로고침됨)
+       return; 
     }
 
-    try {
-      const response = await window.PortOne.requestPayment({
-        // 🚨 아까 넣은 가을이의 ID와 Key는 그대로 유지해줘!
-        storeId: "store-15bf6eb3-5f70-4e99-a52e-065074dc1bbb", 
-        channelKey: "channel-key-44cc627e-0d0a-4450-a472-51e9a714b003", 
-        
-        paymentId: `payment-${crypto.randomUUID()}`,
-        orderName: `${pkg.amount}T 토큰 충전`,
-        totalAmount: pkg.price,
-        currency: "CURRENCY_KRW",
-        
-        // ✨ [핵심 수정] "EASY_PAY" -> "CARD"로 변경!
-        // 토스페이먼츠는 EASY_PAY를 쓸 때 추가 설정이 필요해서, "CARD"로 해야 일반 결제창이 잘 떠.
-        payMethod: "CARD", 
-        
-        customer: {
-          fullName: user?.name || "익명", 
-          phoneNumber: user?.phone || "010-0000-0000", 
-          email: user?.email || "no-email@adcube.com", 
-        },
-      });
-
-      if (response.code != null) {
-        return alert(`결제 실패: ${response.message}`);
-      }
-
-      alert(`🎉 결제 성공! ${pkg.amount + pkg.bonus}T가 충전됩니다.`);
-      onCharge(pkg.amount + pkg.bonus);
-
-    } catch (error) {
-      console.error("결제 중 오류 발생:", error);
-      alert("결제 시스템 오류가 발생했습니다.");
+    if (response && response.code != null) {
+      return alert(`결제 실패: ${response.message}`);
     }
-  };
 
+    // PC 결제 성공 시 로직
+    alert(`🎉 결제 성공! ${pkg.amount + pkg.bonus}T가 충전됩니다.`);
+    onCharge(pkg.amount + pkg.bonus);
+
+  } catch (error) {
+    console.error("결제 중 오류 발생:", error);
+    // 모바일 리다이렉트 중에는 에러가 아니라 이동 중일 수 있음
+    if (!/Mobi|Android/i.test(navigator.userAgent)) {
+       alert("결제 시스템 오류가 발생했습니다.");
+    }
+  }
+};
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
       {/* ✨ [수정됨] (V2) 텍스트 삭제 & 깨지지 않는 아이콘 사용 */}
@@ -1098,6 +1105,44 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
 
 // 👤 마이 페이지 (수정됨: 닉네임 변경 시 중복 확인 추가)
 const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeleteProduct, onUpdateProductSale, onEditItem, onLogout }) => {
+  // 👇 [MyPage] 건의함 전송 로직
+  const [feedback, setFeedback] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  // 👇 [수정됨] 건의함 로직 (내용 매칭 수정 완료)
+  const handleSendFeedback = async () => {
+    if (!feedback.trim()) return alert("내용을 입력해주세요!");
+    setIsSending(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return alert("로그인이 필요합니다.");
+
+      // 1. Supabase 저장
+      const { error } = await supabase.from('feedback').insert([{ user_id: user.id, message: feedback }]);
+      if (error) throw error;
+
+      // 2. EmailJS 전송
+      const SERVICE_ID = 'service_5c5lawj'; 
+      const TEMPLATE_ID = 'template_ij6cluh'; // 🚨 아까 만든 [새 템플릿 ID] 확인!
+      const PUBLIC_KEY = '_65YQMzv3f_w96uia'; 
+
+      // ✨ 여기가 핵심! 'message' 칸에 유저가 쓴 'feedback'을 넣어야 해
+      const templateParams = { 
+        reporter: user.email, 
+        message: feedback 
+      };
+
+      await emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams, PUBLIC_KEY);
+
+      alert("소중한 의견 감사합니다! 💌 (메일로 전송되었습니다)");
+      setFeedback("");
+    } catch (error) {
+      console.error(error);
+      alert("전송 실패.. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setIsSending(false);
+    }
+  };
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
   const navigate = useNavigate();
@@ -1184,7 +1229,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
       window.location.href = '/'; 
     }
   };
-
+    
   return (
     <div style={{ maxWidth: '100%', margin: '0 auto', padding: isMobile ? '10px' : '40px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '40px' }}>
       <EditModal isOpen={!!editModalData} onClose={() => setEditModalData(null)} data={editModalData} onSave={handleEditSave} theme={theme} />
@@ -1238,10 +1283,12 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
             </div>
           </div>
 
-          {/* 3. 고객 센터 */}
+          {/* 3. 고객 센터 (통합됨: 연락처 + 건의함) */}
           <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
             <h2 style={{ fontSize: '18px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px', marginBottom: '15px' }}>🎧 고객센터</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            
+            {/* (1) 연락처 정보 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '30px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ padding: '10px', background: isDarkMode ? '#333' : '#eee', borderRadius: '50%' }}><Phone size={20} color={theme.highlight} /></div>
                 <div><div style={{ fontWeight: 'bold' }}>1588-0000</div><div style={{ fontSize: '12px', color: theme.secondaryText }}>평일 09:00 - 18:00</div></div>
@@ -1251,8 +1298,28 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
                 <div><div style={{ fontWeight: 'bold' }}>help@adcube.com</div><div style={{ fontSize: '12px', color: theme.secondaryText }}>24시간 접수 가능</div></div>
               </div>
             </div>
-          </div>
 
+            {/* 중간 구분선 */}
+            <div style={{ borderTop: `1px solid ${theme.navBorder}`, margin: '20px 0' }}></div>
+
+            {/* (2) 건의함 (같은 박스 안에 쏙!) */}
+            <h2 style={{ fontSize: '18px', marginBottom: '10px' }}>💌 건의함</h2>
+            <p style={{ fontSize: '12px', color: theme.secondaryText, marginBottom: '10px' }}>불편한 점이나 바라는 점을 적어주세요.</p>
+            
+            <textarea
+              style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #ddd', minHeight: '80px', resize: 'none', marginBottom: '10px', background: theme.inputBg, color: theme.text }}
+              placeholder="소중한 의견을 남겨주세요..."
+              value={feedback} onChange={(e) => setFeedback(e.target.value)}
+            />
+            
+            <button
+              onClick={handleSendFeedback} disabled={isSending}
+              style={{ width: '100%', padding: '12px', borderRadius: '10px', backgroundColor: isSending ? '#ccc' : theme.highlight, color: isSending ? 'white' : 'black', fontWeight: 'bold', border: 'none', cursor: isSending ? 'not-allowed' : 'pointer' }}
+            >
+              {isSending ? "전송 중..." : "의견 보내기 🚀"}
+            </button>
+          </div>
+          
           {/* 4. 내 상품 관리 */}
           <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
             <h2 style={{ fontSize: '18px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px', marginBottom: '15px' }}>📦 내 상품 관리</h2>
