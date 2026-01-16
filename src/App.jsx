@@ -1022,6 +1022,16 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     { id: 3, amount: 10000, bonus: 3000, price: 10000, color: '#FFD700' },
     { id: 4, amount: 50000, bonus: 15000, price: 50000, color: '#00ccff' },
   ];
+  // 👇 [추가] 결제 후 돌아왔을 때 실행되는 코드 (여기에 붙여넣기!)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    // 주소창에 paymentId가 있다는 건 결제하고 돌아왔다는 뜻!
+    if (urlParams.get('paymentId')) {
+      alert("결제가 정상적으로 처리되었습니다! 🎉");
+      // 지저분한 주소창 정리 (paymentId 제거)
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   // 💰 [TokenPage 수정] handlePayment 함수 전체를 이걸로 교체해!
 const handlePayment = async (pkg) => {
