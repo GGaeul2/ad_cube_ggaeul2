@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useNavigate, useLocation,
 import { User, Coins, ShoppingBag, Home, Moon, Sun, PlusCircle, Package, Trash2, Percent, Menu, X, Edit2, Phone, Mail, ExternalLink, Heart, Eye, Lock, CheckCircle, ShieldCheck, ArrowUp, ArrowDown } from 'lucide-react';
 import Ad3D from './components/Ad3D';
 import './App.css';
+import DiceGame from './DiceGame';
 
 // 👇 우리가 만든 AI 엔진 가져오기 (이름 수정됨!)
 import { analyzeContent } from './filter.js';
@@ -1176,7 +1177,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
       alert("쿠폰 적용 중 오류가 발생했습니다.");
     }
   };
-  
+
   // 나머지 헬퍼 함수들 (기존 유지)
   const startSaleEdit = (product) => { setEditingSaleId(product.id); setSaleForm({ price: product.discountPrice || product.price * 0.9, days: 7 }); };
   const submitSale = (id) => { onUpdateProductSale(id, parseInt(saleForm.price), parseInt(saleForm.days)); setEditingSaleId(null); };
@@ -1223,6 +1224,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
       {/* 오른쪽 컨텐츠 */}
       <div style={{ flex: 1 }}>
         <h1 style={{ fontSize: '28px', marginBottom: '20px' }}>마이 페이지 👤</h1>
+        <DiceGame user={user} onCharge={onCharge} isDarkMode={isDarkMode} />
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '30px' }}>
           
           {/* 1. 찜한 목록 */}
