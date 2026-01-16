@@ -1088,59 +1088,17 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
   );
 };
 
-// 👤 마이 페이지 (수정됨: 닉네임 변경 시 중복 확인 추가)
-const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeleteProduct, onUpdateProductSale, onEditItem, onLogout }) => {
-  // 👇 [MyPage] 건의함 전송 로직
-  const [feedback, setFeedback] = useState("");
-  const [isSending, setIsSending] = useState(false);
-
-  // 👇 [수정됨] 건의함 로직 (내용 매칭 수정 완료)
-  const handleSendFeedback = async () => {
-    if (!feedback.trim()) return alert("내용을 입력해주세요!");
-    setIsSending(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return alert("로그인이 필요합니다.");
-
-      // 1. Supabase 저장
-      const { error } = await supabase.from('feedback').insert([{ user_id: user.id, message: feedback }]);
-      if (error) throw error;
-
-      // 2. EmailJS 전송
-      const SERVICE_ID = 'service_5c5lawj'; 
-      const TEMPLATE_ID = 'template_ij6cluh'; // 🚨 아까 만든 [새 템플릿 ID] 확인!
-      const PUBLIC_KEY = '_65YQMzv3f_w96uia'; 
-
-      // ✨ 여기가 핵심! 'message' 칸에 유저가 쓴 'feedback'을 넣어야 해
-      const templateParams = { 
-        reporter: user.email, 
-        message: feedback 
-      };
-
-      await emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams, PUBLIC_KEY);
-
-      alert("소중한 의견 감사합니다! 💌 (메일로 전송되었습니다)");
-      setFeedback("");
-    } catch (error) {
-      console.error(error);
-      alert("전송 실패.. 잠시 후 다시 시도해주세요.");
-    } finally {
-      setIsSending(false);
-    }
-  };
+// 👤 마이 페이지 (수정됨: 쿠폰 기능 탑재!)
+const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeleteProduct, onUpdateProductSale, onEditItem, onLogout, onCharge }) => {
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
   const navigate = useNavigate();
   
-  const myAds = adList.filter((ad) => ad.isMine);
-  const myProducts = productList.filter((p) => p.isMine);
-  const wishList = productList.filter((p) => p.isLiked);
-  
-  const [userInfo, setUserInfo] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-    phone: user?.phone || '010-0000-0000',
-  });
+  // 상태 관리들
+  const [feedback, setFeedback] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [couponCode, setCouponCode] = useState(''); // ✨ 쿠폰 코드 상태
+  const [userInfo, setUserInfo] = useState({ name: user?.name || '', email: user?.email || '', phone: user?.phone || '010-0000-0000' });
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(userInfo);
   const [editingSaleId, setEditingSaleId] = useState(null);
@@ -1148,89 +1106,95 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
   const [editModalData, setEditModalData] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  const myAds = adList.filter((ad) => ad.isMine);
+  const myProducts = productList.filter((p) => p.isMine);
+  const wishList = productList.filter((p) => p.isLiked);
+
+  // 건의함 로직
+  const handleSendFeedback = async () => {
+    if (!feedback.trim()) return alert("내용을 입력해주세요!");
+    setIsSending(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return alert("로그인이 필요합니다.");
+      const { error } = await supabase.from('feedback').insert([{ user_id: user.id, message: feedback }]);
+      if (error) throw error;
+      const templateParams = { reporter: user.email, message: feedback };
+      await emailjs.send('service_5c5lawj', 'template_ij6cluh', templateParams, '_65YQMzv3f_w96uia');
+      alert("소중한 의견 감사합니다! 💌");
+      setFeedback("");
+    } catch (error) { console.error(error); alert("전송 실패.."); } finally { setIsSending(false); }
+  };
+
+  // ✨ 쿠폰 사용 로직
+  const handleUseCoupon = async () => {
+    if (!couponCode.trim()) return alert("코드를 입력해주세요!");
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return alert("로그인 정보가 없습니다.");
+
+      // 1. 쿠폰 확인
+      const { data: coupon, error: couponError } = await supabase.from('coupons').select('*').eq('code', couponCode.toUpperCase()).eq('is_active', true).maybeSingle();
+      if (couponError) throw couponError;
+      if (!coupon) return alert("유효하지 않은 쿠폰입니다. 🤔");
+
+      // 2. 중복 사용 확인
+      const { data: used, error: usedError } = await supabase.from('used_coupons').select('*').eq('user_id', user.id).eq('coupon_code', coupon.code).maybeSingle();
+      if (usedError) throw usedError;
+      if (used) return alert("이미 사용한 쿠폰입니다! 🙅‍♂️");
+
+      // 3. 지급 및 기록
+      await onCharge(coupon.amount);
+      await supabase.from('used_coupons').insert([{ user_id: user.id, coupon_code: coupon.code }]);
+      
+      alert(`🎉 쿠폰 적용 완료! ${coupon.amount.toLocaleString()}T 지급됨.`);
+      setCouponCode('');
+    } catch (error) {
+      console.error(error);
+      alert("쿠폰 적용 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 나머지 헬퍼 함수들 (기존 유지)
   const startSaleEdit = (product) => { setEditingSaleId(product.id); setSaleForm({ price: product.discountPrice || product.price * 0.9, days: 7 }); };
   const submitSale = (id) => { onUpdateProductSale(id, parseInt(saleForm.price), parseInt(saleForm.days)); setEditingSaleId(null); };
   const cancelSale = (id) => { onUpdateProductSale(id, 0, 0); setEditingSaleId(null); };
-
-  // ✨ [수정됨] 프로필 저장 함수 (중복 체크 + AI 검사)
   const handleSaveProfile = async () => {
-    if (!editForm.name.trim()) return alert("닉네임을 입력해주세요.");
-
-    // 1. ✨ 이름이 바뀌었다면 중복 검사 실행
+    if (!editForm.name.trim()) return alert("닉네임 입력!");
     if (editForm.name !== userInfo.name) {
-      const { data: existingUser } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('name', editForm.name)
-        .maybeSingle();
-
-      if (existingUser) {
-        return alert("🚨 이미 사용 중인 닉네임입니다. 다른 이름을 사용해주세요.");
-      }
+      const { data: existingUser } = await supabase.from('profiles').select('name').eq('name', editForm.name).maybeSingle();
+      if (existingUser) return alert("이미 사용 중인 닉네임입니다.");
     }
-
-    // 2. AI 유해성 검사
     const checkResult = await analyzeContent(editForm.name, null, 'profile');
+    if (!checkResult.isSafe) return alert(`닉네임 사용 불가: ${checkResult.reason}`);
     
-    if (!checkResult.isSafe) {
-      alert(`🚨 닉네임 사용 불가: ${checkResult.reason}`);
-      setEditForm({ ...editForm, name: userInfo.name }); 
-      return;
-    }
-
-    // 3. DB 업데이트 (프로필 테이블)
-    const { error } = await supabase
-      .from('profiles')
-      .update({ name: editForm.name })
-      .eq('id', user.id);
-
-    if (error) {
-      console.error("업데이트 실패:", error);
-      return alert("저장 중 오류가 발생했습니다.");
-    }
-
-    setUserInfo(editForm);
-    setIsEditing(false);
-    alert('✅ 닉네임이 변경되었습니다!');
+    const { error } = await supabase.from('profiles').update({ name: editForm.name }).eq('id', user.id);
+    if (error) return alert("저장 실패");
+    setUserInfo(editForm); setIsEditing(false); alert('✅ 변경 완료!');
   };
-
   const openEditModal = (item, type) => { setEditModalData({ ...item, itemType: type }); };
   const handleEditSave = (updatedData) => { onEditItem(updatedData.id, updatedData, editModalData.itemType); setEditModalData(null); };
-
   const handleDeleteAccount = async () => {
-    if (isDeleting) return; 
-    if (!window.confirm("정말로 탈퇴하시겠습니까?\n(확인을 누르면 즉시 계정이 삭제됩니다)")) return;
+    if (isDeleting || !window.confirm("정말 탈퇴하시겠습니까?")) return;
     setIsDeleting(true);
-    try {
-      const deletePromise = supabase.rpc('delete_own_account');
-      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 1000));
-      await Promise.race([deletePromise, timeoutPromise]);
-    } catch (error) {
-      console.warn("탈퇴 에러 무시:", error);
-    } finally {
-      alert("탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.");
-      onLogout(); 
-      localStorage.clear(); 
-      window.location.href = '/'; 
-    }
+    try { await supabase.rpc('delete_own_account'); } catch (e) { console.warn(e); } 
+    finally { alert("탈퇴 완료."); onLogout(); localStorage.clear(); window.location.href = '/'; }
   };
-    
+
   return (
     <div style={{ maxWidth: '100%', margin: '0 auto', padding: isMobile ? '10px' : '40px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '40px' }}>
       <EditModal isOpen={!!editModalData} onClose={() => setEditModalData(null)} data={editModalData} onSave={handleEditSave} theme={theme} />
       
       {/* 왼쪽 메뉴 */}
-      <div style={{ width: isMobile ? '100%' : '250px', background: isDarkMode ? '#222' : '#f4f4f4', padding: '20px', borderRadius: '15px', height: 'fit-content', boxSizing: 'border-box' }}>
+      <div style={{ width: isMobile ? '100%' : '250px', background: isDarkMode ? '#222' : '#f4f4f4', padding: '20px', borderRadius: '15px', height: 'fit-content' }}>
         <h2 style={{ fontSize: '20px', marginBottom: '15px', fontWeight: 'bold' }}>Menu</h2>
         <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: '10px', overflowX: 'auto' }}>
-          <button onClick={() => navigate('/register-ad')} style={{ padding: '15px', background: theme.cardBg, border: 'none', borderRadius: '10px', cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontWeight: 'bold', color: theme.text, whiteSpace: 'nowrap' }}><PlusCircle size={18} color={theme.highlight} /> 광고</button>
-          <button onClick={() => navigate('/register-product')} style={{ padding: '15px', background: theme.cardBg, border: 'none', borderRadius: '10px', cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontWeight: 'bold', color: theme.text, whiteSpace: 'nowrap' }}><Package size={18} color="#FF5252" /> 상품</button>
-          <button onClick={() => navigate('/token')} style={{ padding: '15px', background: theme.cardBg, border: 'none', borderRadius: '10px', cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontWeight: 'bold', color: theme.text, whiteSpace: 'nowrap' }}><Coins size={18} color="#00ccff" /> 충전</button>
+          <button onClick={() => navigate('/register-ad')} style={{ padding: '15px', background: theme.cardBg, border: 'none', borderRadius: '10px', cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontWeight: 'bold', color: theme.text }}><PlusCircle size={18} color={theme.highlight} /> 광고</button>
+          <button onClick={() => navigate('/register-product')} style={{ padding: '15px', background: theme.cardBg, border: 'none', borderRadius: '10px', cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontWeight: 'bold', color: theme.text }}><Package size={18} color="#FF5252" /> 상품</button>
+          <button onClick={() => navigate('/token')} style={{ padding: '15px', background: theme.cardBg, border: 'none', borderRadius: '10px', cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontWeight: 'bold', color: theme.text }}><Coins size={18} color="#00ccff" /> 충전</button>
         </div>
         <div style={{ marginTop: '20px', borderTop: '1px solid #ddd', paddingTop: '20px' }}>
-            <button onClick={handleDeleteAccount} disabled={isDeleting} style={{ width: '100%', padding: '10px', background: isDeleting ? '#ccc' : 'transparent', border: isDeleting ? 'none' : '1px solid #ff4444', color: isDeleting ? '#666' : '#ff4444', borderRadius: '10px', cursor: isDeleting ? 'wait' : 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
-                {isDeleting ? '탈퇴 처리 중...' : '회원 탈퇴'}
-            </button>
+            <button onClick={handleDeleteAccount} disabled={isDeleting} style={{ width: '100%', padding: '10px', background: 'transparent', border: '1px solid #ff4444', color: '#ff4444', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>{isDeleting ? '탈퇴 중...' : '회원 탈퇴'}</button>
         </div>
       </div>
 
@@ -1238,6 +1202,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
       <div style={{ flex: 1 }}>
         <h1 style={{ fontSize: '28px', marginBottom: '20px' }}>마이 페이지 👤</h1>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '30px' }}>
+          
           {/* 1. 찜한 목록 */}
           <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
             <h2 style={{ fontSize: '18px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px', marginBottom: '15px' }}>💖 찜한 목록 ({wishList.length})</h2>
@@ -1256,53 +1221,46 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
             )}
           </div>
 
-          {/* 2. 정보 수정 */}
-          <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: 'bold' }}>⚙️ 정보 수정</h2>
-              {!isEditing ? (<button onClick={() => setIsEditing(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: theme.secondaryText }}><Edit2 size={18} /></button>) : (<button onClick={handleSaveProfile} style={{ background: theme.highlight, border: 'none', borderRadius: '5px', padding: '5px 10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>저장</button>)}
+          {/* 2. 정보 수정 & 쿠폰 등록 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* 정보 수정 */}
+            <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: 'bold' }}>⚙️ 정보 수정</h2>
+                {!isEditing ? (<button onClick={() => setIsEditing(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: theme.secondaryText }}><Edit2 size={18} /></button>) : (<button onClick={handleSaveProfile} style={{ background: theme.highlight, border: 'none', borderRadius: '5px', padding: '5px 10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>저장</button>)}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <div><label style={{ fontSize: '12px', color: theme.secondaryText }}>닉네임</label>{isEditing ? (<input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} style={{ width: '100%', padding: '5px' }} />) : (<div style={{ fontWeight: 'bold' }}>{userInfo.name}</div>)}</div>
+                <div><label style={{ fontSize: '12px', color: theme.secondaryText }}>이메일</label><div style={{ fontWeight: 'bold' }}>{userInfo.email}</div></div>
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              <div><label style={{ fontSize: '12px', color: theme.secondaryText }}>닉네임</label>{isEditing ? (<input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} style={{ width: '100%', padding: '5px' }} />) : (<div style={{ fontWeight: 'bold' }}>{userInfo.name}</div>)}</div>
-              <div><label style={{ fontSize: '12px', color: theme.secondaryText }}>이메일</label><div style={{ fontWeight: 'bold' }}>{userInfo.email}</div></div>
+
+            {/* ✨ 쿠폰 등록 섹션 */}
+            <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
+              <h2 style={{ fontSize: '18px', marginBottom: '10px', fontWeight: 'bold' }}>🎟️ 쿠폰 등록</h2>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <input 
+                  value={couponCode}
+                  onChange={(e) => setCouponCode(e.target.value)}
+                  placeholder="쿠폰 코드 입력"
+                  style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd', background: theme.inputBg, color: theme.text }}
+                />
+                <button onClick={handleUseCoupon} style={{ padding: '10px 15px', background: theme.highlight, border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', color: 'black' }}>적용</button>
+              </div>
             </div>
           </div>
 
-          {/* 3. 고객 센터 (통합됨: 연락처 + 건의함) */}
+          {/* 3. 고객 센터 */}
           <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
             <h2 style={{ fontSize: '18px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px', marginBottom: '15px' }}>🎧 고객센터</h2>
-            
-            {/* (1) 연락처 정보 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '30px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ padding: '10px', background: isDarkMode ? '#333' : '#eee', borderRadius: '50%' }}><Phone size={20} color={theme.highlight} /></div>
-                <div><div style={{ fontWeight: 'bold' }}>1588-0000</div><div style={{ fontSize: '12px', color: theme.secondaryText }}>평일 09:00 - 18:00</div></div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ padding: '10px', background: isDarkMode ? '#333' : '#eee', borderRadius: '50%' }}><Mail size={20} color="#FF5252" /></div>
-                <div><div style={{ fontWeight: 'bold' }}>help@adcube.com</div><div style={{ fontSize: '12px', color: theme.secondaryText }}>24시간 접수 가능</div></div>
-              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><div style={{ padding: '10px', background: isDarkMode ? '#333' : '#eee', borderRadius: '50%' }}><Phone size={20} color={theme.highlight} /></div><div><div style={{ fontWeight: 'bold' }}>1588-0000</div><div style={{ fontSize: '12px', color: theme.secondaryText }}>평일 09:00 - 18:00</div></div></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><div style={{ padding: '10px', background: isDarkMode ? '#333' : '#eee', borderRadius: '50%' }}><Mail size={20} color="#FF5252" /></div><div><div style={{ fontWeight: 'bold' }}>help@adcube.com</div><div style={{ fontSize: '12px', color: theme.secondaryText }}>24시간 접수 가능</div></div></div>
             </div>
-
-            {/* 중간 구분선 */}
             <div style={{ borderTop: `1px solid ${theme.navBorder}`, margin: '20px 0' }}></div>
-
-            {/* (2) 건의함 (같은 박스 안에 쏙!) */}
             <h2 style={{ fontSize: '18px', marginBottom: '10px' }}>💌 건의함</h2>
-            <p style={{ fontSize: '12px', color: theme.secondaryText, marginBottom: '10px' }}>불편한 점이나 바라는 점을 적어주세요.</p>
-            
-            <textarea
-              style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #ddd', minHeight: '80px', resize: 'none', marginBottom: '10px', background: theme.inputBg, color: theme.text }}
-              placeholder="소중한 의견을 남겨주세요..."
-              value={feedback} onChange={(e) => setFeedback(e.target.value)}
-            />
-            
-            <button
-              onClick={handleSendFeedback} disabled={isSending}
-              style={{ width: '100%', padding: '12px', borderRadius: '10px', backgroundColor: isSending ? '#ccc' : theme.highlight, color: isSending ? 'white' : 'black', fontWeight: 'bold', border: 'none', cursor: isSending ? 'not-allowed' : 'pointer' }}
-            >
-              {isSending ? "전송 중..." : "의견 보내기 🚀"}
-            </button>
+            <textarea style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #ddd', minHeight: '80px', resize: 'none', marginBottom: '10px', background: theme.inputBg, color: theme.text }} placeholder="소중한 의견을 남겨주세요..." value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+            <button onClick={handleSendFeedback} disabled={isSending} style={{ width: '100%', padding: '12px', borderRadius: '10px', backgroundColor: isSending ? '#ccc' : theme.highlight, color: isSending ? 'white' : 'black', fontWeight: 'bold', border: 'none', cursor: isSending ? 'not-allowed' : 'pointer' }}>{isSending ? "전송 중..." : "의견 보내기 🚀"}</button>
           </div>
           
           {/* 4. 내 상품 관리 */}
@@ -1317,14 +1275,12 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
                         {p.image && <img src={p.image} alt="thum" style={{ width: '50px', height: '50px', borderRadius: '5px', objectFit: 'cover' }} />}
                         <div>
                           <div style={{ fontWeight: 'bold' }}>{p.name}</div>
-                          <div style={{ color: theme.secondaryText, fontSize: '12px' }}>
-                            {p.discountPrice ? <><span style={{ textDecoration: 'line-through' }}>{p.price.toLocaleString()}</span> <span style={{ color: theme.sale }}>{p.discountPrice.toLocaleString()}</span></> : `${p.price.toLocaleString()}원`}
-                          </div>
+                          <div style={{ color: theme.secondaryText, fontSize: '12px' }}>{p.discountPrice ? <><span style={{ textDecoration: 'line-through' }}>{p.price.toLocaleString()}</span> <span style={{ color: theme.sale }}>{p.discountPrice.toLocaleString()}</span></> : `${p.price.toLocaleString()}원`}</div>
                           <div style={{ fontSize: '11px', color: isExpired(p.expiryDate) ? 'red' : theme.highlight }}>{getDaysLeft(p.expiryDate)} 남음</div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        <button onClick={(e) => { e.stopPropagation(); startSaleEdit(p); }} style={{ padding: '5px 10px', borderRadius: '5px', border: 'none', background: theme.highlight, cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}><Percent size={14} /> 세일</button>
+                        <button onClick={(e) => { e.stopPropagation(); startSaleEdit(p); }} style={{ padding: '5px 10px', borderRadius: '5px', border: 'none', background: theme.highlight, cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}><Percent size={14} /></button>
                         <button onClick={(e) => { e.stopPropagation(); openEditModal(p, 'product'); }} style={{ padding: '5px 10px', borderRadius: '5px', border: 'none', background: '#333', color: 'white', cursor: 'pointer' }}><Edit2 size={14} /></button>
                         <button onClick={(e) => { e.stopPropagation(); if (window.confirm('정말 삭제하시겠습니까?')) onDeleteProduct(p.id); }} style={{ background: '#FF5252', padding: '5px 10px', borderRadius: '5px', border: 'none', cursor: 'pointer', color: 'white' }}><Trash2 size={14} /></button>
                       </div>
@@ -1357,10 +1313,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
                   <div key={ad.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: isDarkMode ? '#222' : '#fff', borderRadius: '10px', border: `1px solid ${theme.cardBorder}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       {ad.image && <img src={ad.image} alt="thum" style={{ width: '40px', height: '40px', borderRadius: '5px', objectFit: 'cover' }} />}
-                      <div>
-                        <div style={{ fontWeight: 'bold' }}>{ad.title}</div>
-                        <div style={{ fontSize: '11px', color: isExpired(ad.expiryDate) ? 'red' : theme.highlight }}>{getDaysLeft(ad.expiryDate)} 남음</div>
-                      </div>
+                      <div><div style={{ fontWeight: 'bold' }}>{ad.title}</div><div style={{ fontSize: '11px', color: isExpired(ad.expiryDate) ? 'red' : theme.highlight }}>{getDaysLeft(ad.expiryDate)} 남음</div></div>
                     </div>
                     <div style={{ display: 'flex', gap: '5px' }}>
                       <button onClick={() => openEditModal(ad, 'ad')} style={{ padding: '5px', borderRadius: '5px', border: 'none', background: '#333', color: 'white', cursor: 'pointer' }}><Edit2 size={16} /></button>
@@ -1530,7 +1483,7 @@ export default function App() {
           <Route path="/register-ad" element={<ProtectedRoute><RegisterAdPage isDarkMode={isDarkMode} tokens={tokens} onRegister={registerAd} onBan={handleBanUser} /></ProtectedRoute>} />
           <Route path="/register-product" element={<ProtectedRoute><RegisterProductPage isDarkMode={isDarkMode} tokens={tokens} onRegister={registerProduct} onBan={handleBanUser} /></ProtectedRoute>} />
           <Route path="/token" element={<ProtectedRoute><TokenPage isDarkMode={isDarkMode} onCharge={chargeTokens} user={currentUser} /></ProtectedRoute>} />
-          <Route path="/mypage" element={<ProtectedRoute><MyPage isDarkMode={isDarkMode} user={currentUser} adList={adList} productList={processedProductList} onDeleteAd={deleteAd} onDeleteProduct={deleteProduct} onUpdateProductSale={updateProductSale} onEditItem={handleEditItem} onLogout={handleLogout} /></ProtectedRoute>} />
+          <Route path="/mypage" element={<ProtectedRoute><MyPage isDarkMode={isDarkMode} user={currentUser} adList={adList} productList={processedProductList} onDeleteAd={deleteAd} onDeleteProduct={deleteProduct} onUpdateProductSale={updateProductSale} onEditItem={handleEditItem} onLogout={handleLogout} onCharge={chargeTokens} /></ProtectedRoute>} />
           <Route path="/cs" element={<CSPage />} />
           <Route path="*" element={<div style={{ textAlign: 'center', marginTop: '50px' }}><h1>404</h1><p>페이지 없음</p></div>} />
         </Routes>
