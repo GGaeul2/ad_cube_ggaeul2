@@ -1011,7 +1011,7 @@ const RegisterProductPage = ({ isDarkMode, tokens, onRegister, onBan }) => {
   );
 };
 
-// 💰 토큰 페이지 (모바일 결제 후 자동 적립 기능 포함)
+// 💰 토큰 페이지 (수정됨: 모바일 복귀 시 자동 충전 로직 추가)
 const TokenPage = ({ isDarkMode, onCharge, user }) => {
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -1029,19 +1029,13 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     const paymentId = urlParams.get('paymentId');
     const amountStr = urlParams.get('amount');
 
-    // 결제 ID와 금액이 URL에 있다면? -> 충전 실행!
     if (paymentId && amountStr) {
       const amountToAdd = parseInt(amountStr, 10);
-      
-      // 여기서 chargeTokens 함수를 실행!
-      onCharge(amountToAdd); 
-      
+      onCharge(amountToAdd); // ✨ 여기서 실제로 토큰 추가 함수 실행!
       alert(`결제 완료! 🎉\n${amountToAdd.toLocaleString()}T가 충전됩니다.`);
-      
-      // URL 청소 (새로고침 시 중복 방지)
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, []); // 처음 한 번만 실행
+  }, []);
 
   const handlePayment = async (pkg) => {
     if (!window.PortOne) return alert("결제 시스템 로딩 중...");
@@ -1057,7 +1051,7 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
         currency: "CURRENCY_KRW",
         payMethod: "CARD",
         // 🚨 돌아올 때 '충전할 양(amount)'을 꼬리표로 붙여서 보냄!
-        redirectUrl: `${window.location.origin}/token?amount=${totalTokens}`, 
+        redirectUrl: `${window.location.href}?amount=${totalTokens}`, 
         customer: { fullName: user?.name || "익명", email: user?.email || "no-email@test.com" },
       });
 
@@ -1441,60 +1435,67 @@ export default function App() {
     });
   };
   const processedProductList = calculateTags(productList);
-  // 1. [수정됨] 토큰 충전 함수 (덮어쓰기 방지: DB 확인 후 더하기)
+
+  // 👇 [수정] 토큰 충전 함수 (DB값 확인하여 덮어쓰기 방지)
   const chargeTokens = async (amount) => {
     try {
-      // (1) 현재 로그인한 진짜 유저 확인
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return alert("로그인 정보가 없습니다. 다시 로그인해주세요.");
-
-      // (2) 🚨 중요: DB에서 '진짜 현재 잔액'을 먼저 가져옴!
-      const { data: profile, error: fetchError } = await supabase
-        .from('profiles')
-        .select('tokens')
-        .eq('id', user.id)
-        .single();
-
+      if (!user) return alert("로그인 정보가 없습니다.");
+      
+      // DB에서 최신 토큰 값 가져오기
+      const { data: profile, error: fetchError } = await supabase.from('profiles').select('tokens').eq('id', user.id).single();
       if (fetchError) throw fetchError;
 
-      // (3) 가져온 잔액 + 충전할 금액
-      const currentDBTokens = profile.tokens || 0; 
+      const currentDBTokens = profile.tokens || 0;
       const newTotal = currentDBTokens + amount;
 
-      // (4) 합친 금액으로 업데이트
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ tokens: newTotal })
-        .eq('id', user.id);
-
+      // 계산된 값으로 업데이트
+      const { error: updateError } = await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
       if (updateError) throw updateError;
 
-      // (5) 성공하면 화면도 업데이트
       setTokens(newTotal);
-      if (currentUser) {
-        setCurrentUser(prev => ({ ...prev, tokens: newTotal }));
-      }
-      
-      // (6) 모바일 결제 후라면 알림 띄우기
-      // (TokenPage에서 alert을 띄우겠지만 여기서도 콘솔로 확인)
-      console.log(`충전 성공! 기존: ${currentDBTokens} + 충전: ${amount} = 합계: ${newTotal}`);
-
+      if (currentUser) setCurrentUser(prev => ({ ...prev, tokens: newTotal }));
+      console.log(`충전 성공! 합계: ${newTotal}`);
     } catch (err) {
-      console.error("토큰 충전 중 오류:", err);
-      alert("토큰 저장에 실패했습니다. 관리자에게 문의하세요.");
+      console.error("토큰 충전 오류:", err);
+      alert("토큰 저장 실패. 관리자 문의 요망.");
     }
   };
-  // 3. 상품 등록 함수 (DB 차감 추가됨)
-  const registerProduct = async (newProduct) => {
-    const newTotal = tokens - newProduct.fee;
-    setTokens(newTotal); // 화면 차감
 
-    if (currentUser) {
-      await supabase.from('profiles').update({ tokens: newTotal }).eq('id', currentUser.id);
+  // 👇 [복구] 광고 등록 함수 (App 컴포넌트 내부에 있어야 함)
+  const registerAd = async (newAd) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const newTotal = tokens - newAd.price;
+      setTokens(newTotal); 
+      
+      if (user) {
+        await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
+      }
+      
+      const expiryDate = addDays(new Date(), newAd.duration).toISOString();
+      setAdList((prev) => [{ id: Date.now(), ...newAd, views: 0, date: new Date().toISOString().split('T')[0], expiryDate, isMine: true }, ...prev]);
+    } catch (error) {
+      console.error("광고 등록 오류:", error);
     }
+  };
 
-    const expiryDate = addDays(new Date(), newProduct.duration).toISOString();
-    setProductList((prev) => [{ id: Date.now(), ...newProduct, sales: 0, likes: 0, views: 0, date: new Date().toISOString().split('T')[0], expiryDate, isMine: true, isLiked: false }, ...prev]);
+  // 👇 [복구] 상품 등록 함수 (App 컴포넌트 내부에 있어야 함)
+  const registerProduct = async (newProduct) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const newTotal = tokens - newProduct.fee;
+      setTokens(newTotal); 
+      
+      if (user) {
+        await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
+      }
+      
+      const expiryDate = addDays(new Date(), newProduct.duration).toISOString();
+      setProductList((prev) => [{ id: Date.now(), ...newProduct, sales: 0, likes: 0, views: 0, date: new Date().toISOString().split('T')[0], expiryDate, isMine: true, isLiked: false }, ...prev]);
+    } catch (error) {
+      console.error("상품 등록 오류:", error);
+    }
   };
   const deleteAd = (id) => setAdList((prev) => prev.filter((ad) => ad.id !== id));
   const deleteProduct = (id) => setProductList((prev) => prev.filter((p) => p.id !== id));
@@ -1580,7 +1581,7 @@ export default function App() {
         theme={theme} 
       />
 
-<Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme} tokens={tokens} isLoggedIn={isLoggedIn} user={currentUser} onLogout={handleLogout}>
+      <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme} tokens={tokens} isLoggedIn={isLoggedIn} user={currentUser} onLogout={handleLogout}>
         <Routes>
           {/* 👇 [수정 1] AdPage에 onReport 전달 추가 */}
           <Route path="/" element={<AdPage isDarkMode={isDarkMode} adList={adList} onAdClick={(id) => incrementView(id, true)} onReport={openReportModal} />} />
