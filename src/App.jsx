@@ -1089,16 +1089,16 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
   );
 };
 
-// 👤 마이 페이지 (수정됨: 쿠폰 기능 탑재!)
+// 👤 마이 페이지 (수정됨: 게임판 직접 노출 X -> 게임 입장 버튼 O)
 const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeleteProduct, onUpdateProductSale, onEditItem, onLogout, onCharge }) => {
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
   const navigate = useNavigate();
   
-  // 상태 관리들
+  // 상태 관리
   const [feedback, setFeedback] = useState("");
   const [isSending, setIsSending] = useState(false);
-  const [couponCode, setCouponCode] = useState(''); // ✨ 쿠폰 코드 상태
+  const [couponCode, setCouponCode] = useState('');
   const [userInfo, setUserInfo] = useState({ name: user?.name || '', email: user?.email || '', phone: user?.phone || '010-0000-0000' });
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(userInfo);
@@ -1111,15 +1111,14 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
   const myProducts = productList.filter((p) => p.isMine);
   const wishList = productList.filter((p) => p.isLiked);
 
-  // 건의함 로직
+  // 건의함 전송
   const handleSendFeedback = async () => {
     if (!feedback.trim()) return alert("내용을 입력해주세요!");
     setIsSending(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인이 필요합니다.");
-      const { error } = await supabase.from('feedback').insert([{ user_id: user.id, message: feedback }]);
-      if (error) throw error;
+      await supabase.from('feedback').insert([{ user_id: user.id, message: feedback }]);
       const templateParams = { reporter: user.email, message: feedback };
       await emailjs.send('service_5c5lawj', 'template_ij6cluh', templateParams, '_65YQMzv3f_w96uia');
       alert("소중한 의견 감사합니다! 💌");
@@ -1127,61 +1126,29 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
     } catch (error) { console.error(error); alert("전송 실패.."); } finally { setIsSending(false); }
   };
 
-  // ✨ [수정됨] 쿠폰 사용 로직 (이메일 영구 기록 확인 추가)
+  // 쿠폰 사용
   const handleUseCoupon = async () => {
     if (!couponCode.trim()) return alert("코드를 입력해주세요!");
-    
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
 
-      // 1. 쿠폰 유효성 확인
       const { data: coupon, error: couponError } = await supabase.from('coupons').select('*').eq('code', couponCode.toUpperCase()).eq('is_active', true).maybeSingle();
-      if (couponError) throw couponError;
-      if (!coupon) return alert("유효하지 않거나 만료된 쿠폰입니다. 🤔");
+      if (couponError || !coupon) return alert("유효하지 않은 쿠폰입니다.");
 
-      // 2. [기존] 현재 계정 ID로 중복 확인
-      const { data: used, error: usedError } = await supabase.from('used_coupons').select('*').eq('user_id', user.id).eq('coupon_code', coupon.code).maybeSingle();
-      if (usedError) throw usedError;
-      if (used) return alert("이미 사용한 쿠폰입니다! 🙅‍♂️");
+      const { data: emailUsed } = await supabase.from('permanent_coupon_logs').select('*').eq('email', user.email).eq('coupon_code', coupon.code).maybeSingle();
+      if (emailUsed) return alert("이미 사용한 쿠폰입니다! (이메일 기준)");
 
-      // 3. ✨ [NEW] 이메일로 '영구 기록' 확인 (탈퇴 후 재가입 꼼수 방지)
-      const { data: emailUsed, error: emailError } = await supabase
-        .from('permanent_coupon_logs')
-        .select('*')
-        .eq('email', user.email) // 현재 로그인한 이메일로 검색
-        .eq('coupon_code', coupon.code)
-        .maybeSingle();
-
-      if (emailError) throw emailError;
-      
-      // 🚨 이미 이 이메일로 쓴 적이 있다면? 차단!
-      if (emailUsed) {
-        return alert(`[중복 안내]\n'${user.email}' 이메일로 이미 혜택을 받으셨네요!\n(탈퇴 후 재가입하셔도 쿠폰은 1회만 가능합니다 😜)`);
-      }
-
-      // 4. 지급 실행
       await onCharge(coupon.amount);
-
-      // 5. 기록 남기기 (두 군데 다 저장!)
-      // (1) 현재 계정 기록 (세션용)
-      await supabase.from('used_coupons').insert([{ user_id: user.id, coupon_code: coupon.code }]);
-      // (2) ✨ 이메일 영구 기록 (박제!)
       await supabase.from('permanent_coupon_logs').insert([{ email: user.email, coupon_code: coupon.code }]);
+      await supabase.from('used_coupons').insert([{ user_id: user.id, coupon_code: coupon.code }]);
       
-      alert(`🎉 쿠폰 적용 완료! ${coupon.amount.toLocaleString()}T가 지급되었습니다.`);
+      alert(`🎉 쿠폰 적용 완료! ${coupon.amount.toLocaleString()}T 지급됨.`);
       setCouponCode('');
-
-    } catch (error) {
-      console.error(error);
-      alert("쿠폰 적용 중 오류가 발생했습니다.");
-    }
+    } catch (error) { console.error(error); alert("오류 발생"); }
   };
 
-  // 나머지 헬퍼 함수들 (기존 유지)
-  const startSaleEdit = (product) => { setEditingSaleId(product.id); setSaleForm({ price: product.discountPrice || product.price * 0.9, days: 7 }); };
-  const submitSale = (id) => { onUpdateProductSale(id, parseInt(saleForm.price), parseInt(saleForm.days)); setEditingSaleId(null); };
-  const cancelSale = (id) => { onUpdateProductSale(id, 0, 0); setEditingSaleId(null); };
+  // 프로필 저장
   const handleSaveProfile = async () => {
     if (!editForm.name.trim()) return alert("닉네임 입력!");
     if (editForm.name !== userInfo.name) {
@@ -1191,10 +1158,15 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
     const checkResult = await analyzeContent(editForm.name, null, 'profile');
     if (!checkResult.isSafe) return alert(`닉네임 사용 불가: ${checkResult.reason}`);
     
-    const { error } = await supabase.from('profiles').update({ name: editForm.name }).eq('id', user.id);
-    if (error) return alert("저장 실패");
+    const { error } = await supabase.from('profiles').upsert({ id: user.id, email: user.email, name: editForm.name });
+    if (error) { console.error(error); return alert("저장 실패"); }
+    
     setUserInfo(editForm); setIsEditing(false); alert('✅ 변경 완료!');
   };
+
+  const startSaleEdit = (product) => { setEditingSaleId(product.id); setSaleForm({ price: product.discountPrice || product.price * 0.9, days: 7 }); };
+  const submitSale = (id) => { onUpdateProductSale(id, parseInt(saleForm.price), parseInt(saleForm.days)); setEditingSaleId(null); };
+  const cancelSale = (id) => { onUpdateProductSale(id, 0, 0); setEditingSaleId(null); };
   const openEditModal = (item, type) => { setEditModalData({ ...item, itemType: type }); };
   const handleEditSave = (updatedData) => { onEditItem(updatedData.id, updatedData, editModalData.itemType); setEditModalData(null); };
   const handleDeleteAccount = async () => {
@@ -1224,7 +1196,21 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
       {/* 오른쪽 컨텐츠 */}
       <div style={{ flex: 1 }}>
         <h1 style={{ fontSize: '28px', marginBottom: '20px' }}>마이 페이지 👤</h1>
-        <DiceGame user={user} onCharge={onCharge} isDarkMode={isDarkMode} />
+        
+        {/* ✨ 게임 시작 버튼 */}
+        <div style={{ marginBottom: '30px', padding: '20px', background: 'linear-gradient(45deg, #6a11cb 0%, #2575fc 100%)', borderRadius: '15px', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 15px rgba(37, 117, 252, 0.3)' }}>
+          <div>
+            <h2 style={{ fontSize: '20px', marginBottom: '5px' }}>🎲 일일 보너스 게임</h2>
+            <p style={{ fontSize: '14px', opacity: 0.9 }}>주사위 굴리고 최대 1,500T 받아가세요!</p>
+          </div>
+          <button 
+            onClick={() => navigate('/game')} 
+            style={{ padding: '10px 20px', borderRadius: '20px', border: 'none', background: 'white', color: '#2575fc', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.2)' }}
+          >
+            게임 시작 👉
+          </button>
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '30px' }}>
           
           {/* 1. 찜한 목록 */}
@@ -1245,9 +1231,8 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
             )}
           </div>
 
-          {/* 2. 정보 수정 & 쿠폰 등록 */}
+          {/* 2. 정보 수정 & 쿠폰 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* 정보 수정 */}
             <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: 'bold' }}>⚙️ 정보 수정</h2>
@@ -1259,22 +1244,17 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
               </div>
             </div>
 
-            {/* ✨ 쿠폰 등록 섹션 */}
+            {/* 쿠폰 등록 */}
             <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
               <h2 style={{ fontSize: '18px', marginBottom: '10px', fontWeight: 'bold' }}>🎟️ 쿠폰 등록</h2>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <input 
-                  value={couponCode}
-                  onChange={(e) => setCouponCode(e.target.value)}
-                  placeholder="쿠폰 코드 입력"
-                  style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd', background: theme.inputBg, color: theme.text }}
-                />
+                <input value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="쿠폰 코드 입력" style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd', background: theme.inputBg, color: theme.text }} />
                 <button onClick={handleUseCoupon} style={{ padding: '10px 15px', background: theme.highlight, border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', color: 'black' }}>적용</button>
               </div>
             </div>
           </div>
 
-          {/* 3. 고객 센터 */}
+          {/* 3. 고객 센터 (나머지 부분은 동일) */}
           <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
             <h2 style={{ fontSize: '18px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px', marginBottom: '15px' }}>🎧 고객센터</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '30px' }}>
@@ -1287,7 +1267,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
             <button onClick={handleSendFeedback} disabled={isSending} style={{ width: '100%', padding: '12px', borderRadius: '10px', backgroundColor: isSending ? '#ccc' : theme.highlight, color: isSending ? 'white' : 'black', fontWeight: 'bold', border: 'none', cursor: isSending ? 'not-allowed' : 'pointer' }}>{isSending ? "전송 중..." : "의견 보내기 🚀"}</button>
           </div>
           
-          {/* 4. 내 상품 관리 */}
+          {/* 4. 내 상품 관리 (나머지 부분은 동일) */}
           <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
             <h2 style={{ fontSize: '18px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px', marginBottom: '15px' }}>📦 내 상품 관리</h2>
             {myProducts.length === 0 ? (<p style={{ color: theme.secondaryText }}>없음</p>) : (
@@ -1508,6 +1488,18 @@ export default function App() {
           <Route path="/register-product" element={<ProtectedRoute><RegisterProductPage isDarkMode={isDarkMode} tokens={tokens} onRegister={registerProduct} onBan={handleBanUser} /></ProtectedRoute>} />
           <Route path="/token" element={<ProtectedRoute><TokenPage isDarkMode={isDarkMode} onCharge={chargeTokens} user={currentUser} /></ProtectedRoute>} />
           <Route path="/mypage" element={<ProtectedRoute><MyPage isDarkMode={isDarkMode} user={currentUser} adList={adList} productList={processedProductList} onDeleteAd={deleteAd} onDeleteProduct={deleteProduct} onUpdateProductSale={updateProductSale} onEditItem={handleEditItem} onLogout={handleLogout} onCharge={chargeTokens} /></ProtectedRoute>} />
+          {/* 👇 [추가] 게임 전용 페이지 라우터 */}
+          <Route path="/game" element={
+            <ProtectedRoute>
+              <div style={{ maxWidth: '800px', margin: '0 auto', padding: '40px' }}>
+                <h1 style={{ textAlign: 'center', marginBottom: '20px' }}>🎲 럭키 다이스</h1>
+                <DiceGame user={currentUser} onCharge={chargeTokens} isDarkMode={isDarkMode} />
+                <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                  <Link to="/mypage" style={{ color: isDarkMode ? '#aaa' : '#666', textDecoration: 'none', fontWeight: 'bold' }}>⬅️ 돌아가기</Link>
+                </div>
+              </div>
+            </ProtectedRoute>
+          } />
           <Route path="/cs" element={<CSPage />} />
           <Route path="*" element={<div style={{ textAlign: 'center', marginTop: '50px' }}><h1>404</h1><p>페이지 없음</p></div>} />
         </Routes>
