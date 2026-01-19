@@ -5,10 +5,11 @@ import { BrowserRouter as Router, Routes, Route, Link, useNavigate, useLocation,
 import { User, Coins, ShoppingBag, Home, Moon, Sun, PlusCircle, Package, Trash2, Percent, Menu, X, Edit2, Phone, Mail, ExternalLink, Heart, Eye, Lock, CheckCircle, ShieldCheck, ArrowUp, ArrowDown } from 'lucide-react';
 import Ad3D from './components/Ad3D';
 import './App.css';
-import DiceGame from './DiceGame';
 
 // 👇 우리가 만든 AI 엔진 가져오기 (이름 수정됨!)
 import { analyzeContent } from './filter.js';
+
+import DiceGame3D from './DiceGame3D'; // .jsx는 생략 가능!
 
 const globalStyles = `
   * { box-sizing: border-box; }
@@ -1089,7 +1090,7 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
   );
 };
 
-// 👤 마이 페이지 (수정됨: 게임판 직접 노출 X -> 게임 입장 버튼 O)
+// 👤 마이 페이지 (수정됨: 괄호 오류 해결, 게임 버튼 추가, 닉네임 저장 개선)
 const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeleteProduct, onUpdateProductSale, onEditItem, onLogout, onCharge }) => {
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -1148,7 +1149,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
     } catch (error) { console.error(error); alert("오류 발생"); }
   };
 
-  // 프로필 저장
+  // 프로필 저장 (Upsert 적용)
   const handleSaveProfile = async () => {
     if (!editForm.name.trim()) return alert("닉네임 입력!");
     if (editForm.name !== userInfo.name) {
@@ -1164,7 +1165,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
     setUserInfo(editForm); setIsEditing(false); alert('✅ 변경 완료!');
   };
 
-  const startSaleEdit = (product) => { setEditingSaleId(product.id); setSaleForm({ price: product.discountPrice || product.price * 0.9, days: 7 }); };
+  const startSaleEdit = (p) => { setEditingSaleId(p.id); setSaleForm({ price: p.discountPrice || p.price * 0.9, days: 7 }); };
   const submitSale = (id) => { onUpdateProductSale(id, parseInt(saleForm.price), parseInt(saleForm.days)); setEditingSaleId(null); };
   const cancelSale = (id) => { onUpdateProductSale(id, 0, 0); setEditingSaleId(null); };
   const openEditModal = (item, type) => { setEditModalData({ ...item, itemType: type }); };
@@ -1197,7 +1198,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
       <div style={{ flex: 1 }}>
         <h1 style={{ fontSize: '28px', marginBottom: '20px' }}>마이 페이지 👤</h1>
         
-        {/* ✨ 게임 시작 버튼 */}
+        {/* ✨ 게임 시작 버튼 (새로 추가) */}
         <div style={{ marginBottom: '30px', padding: '20px', background: 'linear-gradient(45deg, #6a11cb 0%, #2575fc 100%)', borderRadius: '15px', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 15px rgba(37, 117, 252, 0.3)' }}>
           <div>
             <h2 style={{ fontSize: '20px', marginBottom: '5px' }}>🎲 일일 보너스 게임</h2>
@@ -1254,7 +1255,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
             </div>
           </div>
 
-          {/* 3. 고객 센터 (나머지 부분은 동일) */}
+          {/* 3. 고객 센터 */}
           <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
             <h2 style={{ fontSize: '18px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px', marginBottom: '15px' }}>🎧 고객센터</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '30px' }}>
@@ -1267,7 +1268,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
             <button onClick={handleSendFeedback} disabled={isSending} style={{ width: '100%', padding: '12px', borderRadius: '10px', backgroundColor: isSending ? '#ccc' : theme.highlight, color: isSending ? 'white' : 'black', fontWeight: 'bold', border: 'none', cursor: isSending ? 'not-allowed' : 'pointer' }}>{isSending ? "전송 중..." : "의견 보내기 🚀"}</button>
           </div>
           
-          {/* 4. 내 상품 관리 (나머지 부분은 동일) */}
+          {/* 4. 내 상품 관리 */}
           <div style={{ background: theme.cardBg, padding: '20px', borderRadius: '15px', border: `1px solid ${theme.cardBorder}` }}>
             <h2 style={{ fontSize: '18px', borderBottom: `1px solid ${theme.navBorder}`, paddingBottom: '10px', marginBottom: '15px' }}>📦 내 상품 관리</h2>
             {myProducts.length === 0 ? (<p style={{ color: theme.secondaryText }}>없음</p>) : (
@@ -1488,18 +1489,20 @@ export default function App() {
           <Route path="/register-product" element={<ProtectedRoute><RegisterProductPage isDarkMode={isDarkMode} tokens={tokens} onRegister={registerProduct} onBan={handleBanUser} /></ProtectedRoute>} />
           <Route path="/token" element={<ProtectedRoute><TokenPage isDarkMode={isDarkMode} onCharge={chargeTokens} user={currentUser} /></ProtectedRoute>} />
           <Route path="/mypage" element={<ProtectedRoute><MyPage isDarkMode={isDarkMode} user={currentUser} adList={adList} productList={processedProductList} onDeleteAd={deleteAd} onDeleteProduct={deleteProduct} onUpdateProductSale={updateProductSale} onEditItem={handleEditItem} onLogout={handleLogout} onCharge={chargeTokens} /></ProtectedRoute>} />
-          {/* 👇 [추가] 게임 전용 페이지 라우터 */}
+          {/* 👇 이 부분 추가: 게임 전용 페이지 */}
           <Route path="/game" element={
             <ProtectedRoute>
               <div style={{ maxWidth: '800px', margin: '0 auto', padding: '40px' }}>
-                <h1 style={{ textAlign: 'center', marginBottom: '20px' }}>🎲 럭키 다이스</h1>
-                <DiceGame user={currentUser} onCharge={chargeTokens} isDarkMode={isDarkMode} />
+                <h1 style={{ textAlign: 'center', marginBottom: '20px' }}>🎲 럭키 다이스 (32칸)</h1>
+                {/* 3D 게임판 컴포넌트 실행 */}
+                <DiceGame3D user={currentUser} onCharge={chargeTokens} isDarkMode={isDarkMode} />
                 <div style={{ textAlign: 'center', marginTop: '20px' }}>
                   <Link to="/mypage" style={{ color: isDarkMode ? '#aaa' : '#666', textDecoration: 'none', fontWeight: 'bold' }}>⬅️ 돌아가기</Link>
                 </div>
               </div>
             </ProtectedRoute>
           } />
+          <Route path="/cs" element={<CSPage />} />
           <Route path="/cs" element={<CSPage />} />
           <Route path="*" element={<div style={{ textAlign: 'center', marginTop: '50px' }}><h1>404</h1><p>페이지 없음</p></div>} />
         </Routes>
