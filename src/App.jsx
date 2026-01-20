@@ -873,6 +873,21 @@ const RegisterProductPage = ({ isDarkMode, tokens, onRegister, onBan }) => {
   const totalCost = 500 + durationCost;
   const canAfford = tokens >= totalCost;
 
+  // ✨ [추가할 코드] 이 함수가 없어서 이미지가 등록이 안 됐던 거야!
+  const handleImageChange = async (e, type) => {
+    const file = e.target.files[0];
+    if (file) {
+      // ⚠️ 용량 제한 추가 (2MB 이상이면 등록 거부 - 오류 방지)
+      if (file.size > 2 * 1024 * 1024) {
+        alert("이미지 용량이 너무 큽니다. 2MB 이하로 올려주세요!");
+        return;
+      }
+      
+      const base64 = await convertToBase64(file);
+      setFormData({ ...formData, [type]: base64 });
+    }
+  };
+
   const handleRemoveImage = (type) => {
     setFormData({ ...formData, [type]: null });
     if (type === 'image' && fileInputRef.current) fileInputRef.current.value = '';
