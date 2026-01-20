@@ -1061,41 +1061,36 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     { id: 4, amount: 50000, bonus: 15000, price: 50000, color: '#00ccff' },
   ];
 
-  // 🔄 모바일 결제 복귀 처리 (수정됨: 영수증 번호 체크 + 진단 알림 추가)
+  // 🔄 모바일 결제 복귀 처리 (최종 수정: PortOne V2 응답 완벽 대응)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     
+    // URL에서 정보 긁어오기
     const amountStr = urlParams.get('amount');
-    const impSuccess = urlParams.get('imp_success'); 
-    const impUid = urlParams.get('imp_uid'); // ✨ [NEW] 영수증 번호
-    const errorCode = urlParams.get('error_code');
-    const errorMsg = urlParams.get('error_msg');
+    const paymentId = urlParams.get('paymentId'); // 성공 시 들어오는 영수증 번호
+    const code = urlParams.get('code');           // 실패 시 들어오는 에러 코드
+    const message = urlParams.get('message');     // 실패 사유 (예: 사용자 취소)
 
-    // URL에 아무런 결제 정보가 없으면 아무것도 안 함 (깨끗한 상태)
-    if (!amountStr && !errorCode) return;
-
-    // 1. [확실한 실패] 실패 도장이 있거나 에러 코드가 있음
-    if (impSuccess === 'false' || errorCode) {
-      alert(`결제 실패: ${errorMsg || "취소되었습니다."}`);
+    // 1. [실패/취소 차단] 'code'가 있거나 'message'가 있으면 무조건 실패 처리!
+    // (첫 번째 스크린샷 상황: code=FAILURE_TYPE_PG 감지 -> 충전 안 해줌!)
+    if (code || message) {
+      alert(`결제가 취소되었거나 실패했습니다.\n(사유: ${message || code})`);
       window.history.replaceState({}, document.title, window.location.pathname);
       return; 
     }
 
-    // 2. [확실한 성공] 
-    // 조건: 금액이 있고 AND (성공 도장이 'true'이거나 OR 영수증 번호가 있을 때)
-    // ※ 뒤로가기 먹튀는 imp_uid가 없어서 여기서 걸러짐!
-    if (amountStr && (impSuccess === 'true' || impUid)) {
+    // 2. [성공 승인] 'paymentId'가 있어야만 진짜 결제로 인정!
+    // (두 번째 스크린샷 상황: paymentId=payment-ffc5... 감지 -> 충전 해줌!)
+    if (amountStr && paymentId) {
       const amountToAdd = parseInt(amountStr, 10);
       onCharge(amountToAdd);
       alert(`결제 성공! 🎉\n${amountToAdd.toLocaleString()}T가 충전됩니다.`);
+      // 성공 후 URL 청소 (중복 충전 방지)
       window.history.replaceState({}, document.title, window.location.pathname);
     }
     
-    // 3. [진단 모드] 금액은 있는데 성공도 실패도 아닌 애매한 상황
-    // 가을아, 만약 이 알림이 뜨면 내용을 나한테 알려줘! 그걸로 고칠 수 있어.
+    // 3. [그 외] 금액은 있는데 paymentId도 없고 에러도 없는 이상한 경우 -> 그냥 무시하고 청소
     else if (amountStr) {
-      alert(`⚠️ 결제 확인 불가 (진단용)\n\n서버가 보낸 신호:\n${window.location.search}`);
-      // 일단 URL 청소
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
