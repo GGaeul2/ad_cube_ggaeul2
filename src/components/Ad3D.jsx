@@ -1,7 +1,6 @@
 import React, { useRef, useState, useEffect, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text, RoundedBox, Float, Image as DreiImage, Edges } from '@react-three/drei';
-
 import QRCode from 'qrcode'; 
 import * as THREE from 'three';
 
@@ -233,24 +232,33 @@ function FloatingCube({ items, mode, isDarkMode }) {
   );
 }
 
-// 🎬 [최종 수출 컴포넌트]
+// ✨ [여기부터가 진짜 수정된 부분이야!]
 export default function Ad3D({ isDarkMode, items, mode = 'AD', isMobile }) {
-  // 다크모드 -> 검은 배경 / 라이트모드 -> 밝은 배경
   const bgStyle = isDarkMode 
     ? 'radial-gradient(circle at 50% 50%, #2b2b2b 0%, #000 100%)' 
     : 'radial-gradient(circle at 50% 50%, #f0f0f0 0%, #e0e0e0 100%)';
 
-  const cameraZ = isMobile ? 11 : 8;
+  // 1️⃣ 카메라를 더 가까이 당김 (모바일 14, PC 10) -> 이제 큼직하게 보일 거야!
+  const cameraZ = isMobile ? 10 : 8;
 
   return (
-    <div style={{ width: '100%', height: isMobile ? '400px' : '500px', background: bgStyle, borderRadius: '20px', overflow: 'hidden', transition: 'background 0.3s ease', position: 'relative', zIndex: 1, boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-      <Canvas camera={{ position: [6, 3, cameraZ], fov: 40 }}>
+    <div style={{ width: '100%', height: '100%', background: bgStyle, borderRadius: '20px', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
+      <Canvas camera={{ position: [0, 0, cameraZ], fov: 45 }}> 
         <ambientLight intensity={0.7} />
         <spotLight position={[10, 10, 10]} angle={0.3} intensity={1} />
         <pointLight position={[-10, -5, -5]} intensity={1} />
-        {/* FloatingCube 내부에서 Suspense를 처리하므로 여기서는 바로 호출 */}
+        
         <FloatingCube isDarkMode={isDarkMode} items={items} mode={mode} />
-        <OrbitControls makeDefault minPolarAngle={0} maxPolarAngle={Math.PI} />
+        
+        {/* 2️⃣ 줌 기능 다시 켜기 & 너무 가깝거나 멀지 않게 제한 걸기 */}
+        <OrbitControls 
+          makeDefault 
+          enableZoom={true} 
+          minDistance={8}  // 너무 가까이 못 가게
+          maxDistance={20} // 너무 멀리 못 가게
+          autoRotate={true} 
+          autoRotateSpeed={2.0} 
+        />
       </Canvas>
     </div>
   );

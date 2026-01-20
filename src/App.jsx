@@ -536,15 +536,15 @@ const AdPage = ({ isDarkMode, adList, onAdClick, onReport }) => {
         </div>
       </div>
       
-      {/* ✨ [수정된 부분] 모바일 높이 제한 (350px) 및 터치 영역 확보 */}
+      {/* ✨ [수정] 높이 300px + 모바일에서 가로폭 85%로 줄여서 양옆 스크롤 공간 확보 */}
       <div style={{ 
-        height: isMobile ? '350px' : '500px', 
-        width: '100%', 
+        height: isMobile ? '300px' : '500px', 
+        width: isMobile ? '85%' : '100%', // 👈 여기가 핵심!
         overflow: 'hidden', 
         borderRadius: '20px', 
-        margin: '0 auto',
+        margin: '0 auto', 
         border: `1px solid ${theme.cardBorder}`,
-        touchAction: 'none' // 3D 조작감 향상
+        touchAction: 'none' 
       }}>
         <Ad3D isDarkMode={isDarkMode} items={kioskData} mode="AD" isMobile={isMobile} />
       </div>
@@ -635,10 +635,10 @@ const ShopPage = ({ isDarkMode, productList, onToggleLike, onProductClick, onRep
         </div>
       </div>
       
-      {/* ✨ [수정된 부분] 모바일 높이 제한 (350px) */}
+      {/* ✨ [수정] 쇼핑 페이지도 똑같이 적용 */}
       <div style={{ 
-        height: isMobile ? '350px' : '500px', 
-        width: '100%', 
+        height: isMobile ? '300px' : '500px', 
+        width: isMobile ? '85%' : '100%', // 👈 여기도 85%!
         overflow: 'hidden', 
         borderRadius: '20px', 
         margin: '0 auto',
@@ -1061,29 +1061,31 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     { id: 4, amount: 50000, bonus: 15000, price: 50000, color: '#00ccff' },
   ];
 
-  // 🔄 모바일 결제 복귀 처리
+  // 🔄 모바일 결제 복귀 처리 (수정됨: 결제 성공 확인 강화)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // URL에 있는 모든 정보 가져오기
     const amountStr = urlParams.get('amount');
-    const impSuccess = urlParams.get('imp_success'); // 결제 성공 여부 (true/false)
-    const errorCode = urlParams.get('error_code');   // 에러 코드
+    const impSuccess = urlParams.get('imp_success'); // 성공 여부 (true/false)
+    const errorCode = urlParams.get('error_code');
 
-    // 1. 결제 실패 또는 취소된 경우 (imp_success가 false거나 error_code가 있음)
+    // 1. 명확한 실패/취소 (imp_success가 false거나 에러코드가 있음)
     if (impSuccess === 'false' || errorCode) {
       alert("결제가 취소되었거나 실패했습니다.");
-      // URL을 깨끗하게 청소 (뒤로가기 해도 기록 안 남게)
       window.history.replaceState({}, document.title, window.location.pathname);
       return; 
     }
 
-    // 2. 성공했을 때만 충전 (imp_success가 없거나 true이면서, 금액이 있을 때)
-    if (amountStr) {
+    // 2. ✨ [핵심 수정] 성공 표시('true')가 확실히 있을 때만 충전!
+    // (그냥 금액만 있다고 충전해주지 않음)
+    if (impSuccess === 'true' && amountStr) {
       const amountToAdd = parseInt(amountStr, 10);
       onCharge(amountToAdd);
       alert(`결제 완료! 🎉\n${amountToAdd.toLocaleString()}T가 충전됩니다.`);
-      // 처리가 끝나면 URL 꼬리표 즉시 삭제 (중복 충전 방지)
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    // 3. 결제창 갔다 왔는데 성공/실패 여부가 없는 경우 (단순 뒤로가기 등) -> 무시하고 URL 청소
+    else if (amountStr && !impSuccess) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
