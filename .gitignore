@@ -1,5 +1,4 @@
-
-# Logs (에러 로그 파일 무시)
+# Logs
 logs
 *.log
 npm-debug.log*
@@ -8,13 +7,13 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Dependencies (용량 큰 라이브러리 폴더 무시)
+# Dependencies
 node_modules
 dist
 dist-ssr
 *.local
 
-# Editor directories and files (에디터 설정 파일 무시)
+# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -25,7 +24,7 @@ dist-ssr
 *.sln
 *.sw?
 
-# Environment variables (★제일 중요! 보안 키 무시)
+# Environment variables
 .env
 .env.*
 !.env.example
