@@ -238,7 +238,7 @@ export default function Ad3D({ isDarkMode, items, mode = 'AD', isMobile }) {
     ? 'radial-gradient(circle at 50% 50%, #2b2b2b 0%, #000 100%)' 
     : 'radial-gradient(circle at 50% 50%, #f0f0f0 0%, #e0e0e0 100%)';
 
-  // 1️⃣ 카메라를 더 가까이 당김 (모바일 14, PC 10) -> 이제 큼직하게 보일 거야!
+  // 아까 네가 정한 '황금 비율' 거리 유지! (숫자는 네가 설정한 대로 둬)
   const cameraZ = isMobile ? 10 : 8;
 
   return (
@@ -250,12 +250,13 @@ export default function Ad3D({ isDarkMode, items, mode = 'AD', isMobile }) {
         
         <FloatingCube isDarkMode={isDarkMode} items={items} mode={mode} />
         
-        {/* 2️⃣ 줌 기능 다시 켜기 & 너무 가깝거나 멀지 않게 제한 걸기 */}
+        {/* ✨ [수정] enablePan={false} 추가해서 이동 막음! */}
         <OrbitControls 
           makeDefault 
           enableZoom={true} 
-          minDistance={8}  // 너무 가까이 못 가게
-          maxDistance={20} // 너무 멀리 못 가게
+          enablePan={false}  // 👈 이게 추가됨 (이제 위아래옆으로 안 움직임)
+          minDistance={8} 
+          maxDistance={20}
           autoRotate={true} 
           autoRotateSpeed={2.0} 
         />
