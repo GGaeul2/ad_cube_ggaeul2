@@ -1061,28 +1061,36 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     { id: 4, amount: 50000, bonus: 15000, price: 50000, color: '#00ccff' },
   ];
 
-  // 🔄 모바일 결제 복귀 처리 (수정됨: 결제 성공 조건 완화)
+  // 🔄 모바일 결제 복귀 처리 (엄격 모드: 성공 도장 없으면 절대 충전 안 해줌)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     
     const amountStr = urlParams.get('amount');
-    const impSuccess = urlParams.get('imp_success'); 
+    const impSuccess = urlParams.get('imp_success'); // 결제 성공 여부 (true/false)
     const errorCode = urlParams.get('error_code');
 
-    // 1. [실패/취소 차단] 명확하게 실패라고 떴거나 에러 코드가 있으면 무조건 멈춤! (먹튀 방지)
+    // 1. [실패/취소] 명확하게 실패 도장이 찍혀있거나 에러 코드가 있음
     if (impSuccess === 'false' || errorCode) {
       alert("결제가 취소되었거나 실패했습니다.");
+      // URL 청소 (흔적 지우기)
       window.history.replaceState({}, document.title, window.location.pathname);
       return; 
     }
 
-    // 2. [성공 처리] 실패가 아니고, 금액 정보가 있으면 성공으로 간주!
-    // (아까는 'true' 글자가 꼭 있어야 했는데, 이제는 금액만 확실히 있으면 통과)
-    if (amountStr) {
+    // 2. [성공] ✨ 여기가 중요! ✨
+    // 반드시 'imp_success'가 'true'라는 글자가 있어야만 충전!
+    // (뒤로가기로 왔을 땐 보통 amount만 있고 success는 없거나 false라서 여기서 걸러짐)
+    if (impSuccess === 'true' && amountStr) {
       const amountToAdd = parseInt(amountStr, 10);
       onCharge(amountToAdd);
       alert(`결제 완료! 🎉\n${amountToAdd.toLocaleString()}T가 충전됩니다.`);
-      // 처리가 끝나면 URL 청소 (중복 충전 방지)
+      // 충전 후 즉시 URL 청소 (새로고침 중복 충전 방지)
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    
+    // 3. [부정 접근] 성공 도장 없이 금액만 들고 있는 경우 (뒤로가기 등)
+    // 아무것도 안 하고 URL만 조용히 지워버림 -> 충전 절대 안 됨!
+    else if (amountStr) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
