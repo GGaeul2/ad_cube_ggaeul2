@@ -1061,36 +1061,41 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     { id: 4, amount: 50000, bonus: 15000, price: 50000, color: '#00ccff' },
   ];
 
-  // 🔄 모바일 결제 복귀 처리 (엄격 모드: 성공 도장 없으면 절대 충전 안 해줌)
+  // 🔄 모바일 결제 복귀 처리 (수정됨: 영수증 번호 체크 + 진단 알림 추가)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     
     const amountStr = urlParams.get('amount');
-    const impSuccess = urlParams.get('imp_success'); // 결제 성공 여부 (true/false)
+    const impSuccess = urlParams.get('imp_success'); 
+    const impUid = urlParams.get('imp_uid'); // ✨ [NEW] 영수증 번호
     const errorCode = urlParams.get('error_code');
+    const errorMsg = urlParams.get('error_msg');
 
-    // 1. [실패/취소] 명확하게 실패 도장이 찍혀있거나 에러 코드가 있음
+    // URL에 아무런 결제 정보가 없으면 아무것도 안 함 (깨끗한 상태)
+    if (!amountStr && !errorCode) return;
+
+    // 1. [확실한 실패] 실패 도장이 있거나 에러 코드가 있음
     if (impSuccess === 'false' || errorCode) {
-      alert("결제가 취소되었거나 실패했습니다.");
-      // URL 청소 (흔적 지우기)
+      alert(`결제 실패: ${errorMsg || "취소되었습니다."}`);
       window.history.replaceState({}, document.title, window.location.pathname);
       return; 
     }
 
-    // 2. [성공] ✨ 여기가 중요! ✨
-    // 반드시 'imp_success'가 'true'라는 글자가 있어야만 충전!
-    // (뒤로가기로 왔을 땐 보통 amount만 있고 success는 없거나 false라서 여기서 걸러짐)
-    if (impSuccess === 'true' && amountStr) {
+    // 2. [확실한 성공] 
+    // 조건: 금액이 있고 AND (성공 도장이 'true'이거나 OR 영수증 번호가 있을 때)
+    // ※ 뒤로가기 먹튀는 imp_uid가 없어서 여기서 걸러짐!
+    if (amountStr && (impSuccess === 'true' || impUid)) {
       const amountToAdd = parseInt(amountStr, 10);
       onCharge(amountToAdd);
-      alert(`결제 완료! 🎉\n${amountToAdd.toLocaleString()}T가 충전됩니다.`);
-      // 충전 후 즉시 URL 청소 (새로고침 중복 충전 방지)
+      alert(`결제 성공! 🎉\n${amountToAdd.toLocaleString()}T가 충전됩니다.`);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
     
-    // 3. [부정 접근] 성공 도장 없이 금액만 들고 있는 경우 (뒤로가기 등)
-    // 아무것도 안 하고 URL만 조용히 지워버림 -> 충전 절대 안 됨!
+    // 3. [진단 모드] 금액은 있는데 성공도 실패도 아닌 애매한 상황
+    // 가을아, 만약 이 알림이 뜨면 내용을 나한테 알려줘! 그걸로 고칠 수 있어.
     else if (amountStr) {
+      alert(`⚠️ 결제 확인 불가 (진단용)\n\n서버가 보낸 신호:\n${window.location.search}`);
+      // 일단 URL 청소
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
