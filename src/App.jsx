@@ -535,7 +535,9 @@ const AdPage = ({ isDarkMode, adList, onAdClick, onReport }) => { // 👈 ✨ �
           <button onClick={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))} style={{ ...btnStyle, background: theme.cardBorder, color: theme.text }}>{sortOrder === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}</button>
         </div>
       </div>
-      <Ad3D isDarkMode={isDarkMode} items={kioskData} mode="AD" isMobile={isMobile} />
+      <div style={{ height: isMobile ? '350px' : '500px', width: '100%', overflow: 'hidden', borderRadius: '20px', margin: '0 auto' }}>
+        <Ad3D isDarkMode={isDarkMode} items={kioskData} mode="AD" isMobile={isMobile} />
+      </div>
       <div style={{ marginTop: '40px' }}>
         <h2 style={{ fontSize: '24px', marginBottom: '20px', paddingBottom: '10px' }}>👇 진행중인 광고</h2>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr', gap: '15px' }}>
@@ -632,7 +634,9 @@ const ShopPage = ({ isDarkMode, productList, onToggleLike, onProductClick, onRep
           </div>
         </div>
       </div>
-      <Ad3D isDarkMode={isDarkMode} items={kioskData} mode="SHOP" isMobile={isMobile} />
+      <div style={{ height: isMobile ? '350px' : '500px', width: '100%', overflow: 'hidden', borderRadius: '20px', margin: '0 auto' }}>
+        <Ad3D isDarkMode={isDarkMode} items={kioskData} mode="SHOP" isMobile={isMobile} />
+      </div>
       <div style={{ marginTop: '40px' }}>
         <h2 style={{ fontSize: '24px', marginBottom: '20px', paddingBottom: '10px' }}>👇 목록</h2>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap: isMobile ? '10px' : '20px' }}>
@@ -1013,7 +1017,7 @@ const RegisterProductPage = ({ isDarkMode, tokens, onRegister, onBan }) => {
   );
 };
 
-// 💰 토큰 페이지 (수정됨: 모바일 복귀 시 자동 충전 로직 추가)
+// 💰 토큰 페이지 (수정됨: 결제 취소 버그 방지)
 const TokenPage = ({ isDarkMode, onCharge, user }) => {
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -1025,16 +1029,27 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     { id: 4, amount: 50000, bonus: 15000, price: 50000, color: '#00ccff' },
   ];
 
-  // 🔄 모바일 결제 후 돌아왔을 때 처리
+  // 🔄 모바일 결제 복귀 처리 (보안 강화)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const paymentId = urlParams.get('paymentId');
     const amountStr = urlParams.get('amount');
+    const errorCode = urlParams.get('error_code'); // 결제 실패 시 붙는 코드
+    const impSuccess = urlParams.get('imp_success'); // 아임포트 성공 여부 (true/false)
 
-    if (paymentId && amountStr) {
+    // 실패했거나 취소했으면 중단
+    if (errorCode || impSuccess === 'false') {
+      alert("결제가 취소되었거나 실패했습니다.");
+      // URL 청소 (재진입 시 중복 실행 방지)
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    // 성공 파라미터가 있을 때만 충전
+    if (amountStr && !errorCode) {
       const amountToAdd = parseInt(amountStr, 10);
-      onCharge(amountToAdd); // ✨ 여기서 실제로 토큰 추가 함수 실행!
+      onCharge(amountToAdd);
       alert(`결제 완료! 🎉\n${amountToAdd.toLocaleString()}T가 충전됩니다.`);
+      // ✨ [중요] 처리 후 URL 쿼리 파라미터 즉시 삭제 (뒤로가기 악용 방지)
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
@@ -1052,8 +1067,8 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
         totalAmount: pkg.price,
         currency: "CURRENCY_KRW",
         payMethod: "CARD",
-        // 🚨 돌아올 때 '충전할 양(amount)'을 꼬리표로 붙여서 보냄!
-        redirectUrl: `${window.location.href}?amount=${totalTokens}`, 
+        // 모바일 리다이렉트 URL
+        redirectUrl: `${window.location.origin}/token?amount=${totalTokens}`, 
         customer: { fullName: user?.name || "익명", email: user?.email || "no-email@test.com" },
       });
 
@@ -1337,7 +1352,7 @@ const MyPage = ({ isDarkMode, user, adList, productList, onDeleteAd, onDeletePro
 
 const CSPage = () => (<div><h1>고객센터</h1></div>);
 
-// 🚀 메인 App (구조 재정렬 및 핵심 로직 수정)
+// 🚀 메인 App (수정됨: 토큰 실시간 동기화 기능 추가)
 export default function App() {
   const [isDarkMode, setIsDarkMode] = usePersistedState('isDarkMode', false);
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
@@ -1350,7 +1365,29 @@ export default function App() {
   const [adList, setAdList] = usePersistedState('adList', []);
   const [productList, setProductList] = usePersistedState('productList', []);
 
-  // 1. 태그 계산 로직
+  // ✨ [NEW] DB와 토큰/유저정보 강제 동기화 (새로고침 문제 해결)
+  useEffect(() => {
+    const syncUserProfile = async () => {
+      if (!isLoggedIn || !currentUser?.email) return;
+
+      // DB에서 최신 정보 조회
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('email', currentUser.email)
+        .maybeSingle();
+
+      if (data) {
+        // 로컬 상태 업데이트 (토큰 갱신)
+        setTokens(data.tokens);
+        setCurrentUser(prev => ({ ...prev, ...data })); // 이름 등 다른 정보도 갱신
+      }
+    };
+
+    syncUserProfile();
+  }, [isLoggedIn, currentUser?.email, location.pathname]); // 로그인하거나 페이지 이동할 때마다 체크
+
+  // ... (기존 calculateTags, handleLogin 등 함수들은 그대로 유지) ...
   const calculateTags = (products) => {
     return products.map((p) => {
       let tag = null; const today = new Date(); const pDate = new Date(p.date); const diffDays = Math.ceil(Math.abs(today - pDate) / (1000 * 60 * 60 * 24));
@@ -1360,7 +1397,6 @@ export default function App() {
   };
   const processedProductList = calculateTags(productList);
 
-  // 2. 로그인 함수
   const handleLogin = async (email) => {
     try {
       const { data, error } = await supabase.from('profiles').select('*').eq('email', email).single();
@@ -1375,44 +1411,37 @@ export default function App() {
     } catch (err) { console.error(err); }
   };
 
-  // 3. 로그아웃 & 밴 함수
   const handleLogout = () => { setIsLoggedIn(false); setCurrentUser(null); localStorage.removeItem('isLoggedIn'); localStorage.removeItem('currentUser'); localStorage.removeItem('tokens'); };
   const handleBanUser = () => { if (currentUser) { setBannedUsers((prev) => [...prev, currentUser.email]); setIsLoggedIn(false); setCurrentUser(null); } };
 
-  // 4. [핵심] 토큰 충전 함수 (DB 확인 필수)
   const chargeTokens = async (amount) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("로그인 정보가 없습니다.");
       
-      // .maybeSingle()을 써서 데이터가 없어도 에러가 안 나게 함
       const { data: profile, error: fetchError } = await supabase.from('profiles').select('tokens').eq('id', user.id).maybeSingle();
       if (fetchError) throw fetchError;
 
       let newTotal = 0;
-
       if (!profile) {
-        // 프로필이 없으면? 새로 만들면서 토큰 넣기!
         newTotal = amount;
         const { error: insertError } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, tokens: newTotal }]);
         if (insertError) throw insertError;
       } else {
-        // 프로필이 있으면? 기존 값에 더하기!
         newTotal = (profile.tokens || 0) + amount;
         const { error: updateError } = await supabase.from('profiles').update({ tokens: newTotal }).eq('id', user.id);
         if (updateError) throw updateError;
       }
 
       setTokens(newTotal);
-      if (currentUser) setCurrentUser(prev => ({ ...prev, tokens: newTotal }));
-      console.log(`충전 성공! 합계: ${newTotal}`);
+      // currentUser 즉시 업데이트
+      setCurrentUser(prev => ({ ...prev, tokens: newTotal }));
     } catch (err) {
       console.error("토큰 충전 오류:", err);
       alert("토큰 저장 실패. 관리자 문의 요망.");
     }
   };
 
-  // 5. [핵심] 광고 등록 함수 (정의 위치 중요!)
   const registerAd = async (newAd) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -1425,7 +1454,6 @@ export default function App() {
     } catch (error) { console.error("광고 등록 오류:", error); }
   };
 
-  // 6. [핵심] 상품 등록 함수
   const registerProduct = async (newProduct) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -1438,7 +1466,6 @@ export default function App() {
     } catch (error) { console.error("상품 등록 오류:", error); }
   };
 
-  // 7. 기타 헬퍼 함수들
   const deleteAd = (id) => setAdList((prev) => prev.filter((ad) => ad.id !== id));
   const deleteProduct = (id) => setProductList((prev) => prev.filter((p) => p.id !== id));
   const updateProductSale = (id, salePrice, saleDays) => {
@@ -1489,12 +1516,11 @@ export default function App() {
           <Route path="/register-product" element={<ProtectedRoute><RegisterProductPage isDarkMode={isDarkMode} tokens={tokens} onRegister={registerProduct} onBan={handleBanUser} /></ProtectedRoute>} />
           <Route path="/token" element={<ProtectedRoute><TokenPage isDarkMode={isDarkMode} onCharge={chargeTokens} user={currentUser} /></ProtectedRoute>} />
           <Route path="/mypage" element={<ProtectedRoute><MyPage isDarkMode={isDarkMode} user={currentUser} adList={adList} productList={processedProductList} onDeleteAd={deleteAd} onDeleteProduct={deleteProduct} onUpdateProductSale={updateProductSale} onEditItem={handleEditItem} onLogout={handleLogout} onCharge={chargeTokens} /></ProtectedRoute>} />
-          {/* 👇 이 부분 추가: 게임 전용 페이지 */}
+          {/* 게임 페이지 */}
           <Route path="/game" element={
             <ProtectedRoute>
               <div style={{ maxWidth: '800px', margin: '0 auto', padding: '40px' }}>
                 <h1 style={{ textAlign: 'center', marginBottom: '20px' }}>🎲 럭키 다이스 (32칸)</h1>
-                {/* 3D 게임판 컴포넌트 실행 */}
                 <DiceGame3D user={currentUser} onCharge={chargeTokens} isDarkMode={isDarkMode} />
                 <div style={{ textAlign: 'center', marginTop: '20px' }}>
                   <Link to="/mypage" style={{ color: isDarkMode ? '#aaa' : '#666', textDecoration: 'none', fontWeight: 'bold' }}>⬅️ 돌아가기</Link>
@@ -1502,7 +1528,6 @@ export default function App() {
               </div>
             </ProtectedRoute>
           } />
-          <Route path="/cs" element={<CSPage />} />
           <Route path="/cs" element={<CSPage />} />
           <Route path="*" element={<div style={{ textAlign: 'center', marginTop: '50px' }}><h1>404</h1><p>페이지 없음</p></div>} />
         </Routes>
