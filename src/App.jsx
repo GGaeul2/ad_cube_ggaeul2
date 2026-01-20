@@ -498,8 +498,8 @@ const SignUpPage = ({ isDarkMode }) => {
 
 const btnStyle = { padding: '8px 16px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontWeight: 'bold', transition: '0.3s', fontSize: '14px' };
 
-// 📺 광고 페이지 (수정됨: onReport 기능 수신 + 버튼 클릭감 추가)
-const AdPage = ({ isDarkMode, adList, onAdClick, onReport }) => { // 👈 ✨ 여기에 onReport가 꼭 있어야 해!
+// 📺 광고 페이지 (수정됨: 모바일 3D 뷰어 높이 제한)
+const AdPage = ({ isDarkMode, adList, onAdClick, onReport }) => {
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [filter, setFilter] = useState('default');
@@ -535,9 +535,20 @@ const AdPage = ({ isDarkMode, adList, onAdClick, onReport }) => { // 👈 ✨ �
           <button onClick={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))} style={{ ...btnStyle, background: theme.cardBorder, color: theme.text }}>{sortOrder === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}</button>
         </div>
       </div>
-      <div style={{ height: isMobile ? '350px' : '500px', width: '100%', overflow: 'hidden', borderRadius: '20px', margin: '0 auto' }}>
+      
+      {/* ✨ [수정된 부분] 모바일 높이 제한 (350px) 및 터치 영역 확보 */}
+      <div style={{ 
+        height: isMobile ? '350px' : '500px', 
+        width: '100%', 
+        overflow: 'hidden', 
+        borderRadius: '20px', 
+        margin: '0 auto',
+        border: `1px solid ${theme.cardBorder}`,
+        touchAction: 'none' // 3D 조작감 향상
+      }}>
         <Ad3D isDarkMode={isDarkMode} items={kioskData} mode="AD" isMobile={isMobile} />
       </div>
+
       <div style={{ marginTop: '40px' }}>
         <h2 style={{ fontSize: '24px', marginBottom: '20px', paddingBottom: '10px' }}>👇 진행중인 광고</h2>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr', gap: '15px' }}>
@@ -553,18 +564,7 @@ const AdPage = ({ isDarkMode, adList, onAdClick, onReport }) => { // 👈 ✨ �
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ color: theme.secondaryText, fontSize: '12px' }}>👁️ {ad.views}</span>
-                {/* ✨ 신고 버튼 (z-index 추가로 클릭 확실하게) */}
-                <button 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    console.log("🚨 광고 신고 클릭됨:", ad.id); 
-                    onReport(ad.id, 'ad'); 
-                  }} 
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', zIndex: 10, position: 'relative' }}
-                  title="이 광고 신고하기"
-                >
-                  🚨
-                </button>
+                <button onClick={(e) => { e.stopPropagation(); console.log("🚨 광고 신고 클릭됨:", ad.id); onReport(ad.id, 'ad'); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', zIndex: 10, position: 'relative' }} title="이 광고 신고하기">🚨</button>
               </div>
             </div>
           ))}
@@ -574,8 +574,8 @@ const AdPage = ({ isDarkMode, adList, onAdClick, onReport }) => { // 👈 ✨ �
   );
 };
 
-// 🛍️ 쇼핑 페이지 (수정됨: onReport 기능 수신 + 버튼 클릭감 추가)
-const ShopPage = ({ isDarkMode, productList, onToggleLike, onProductClick, onReport }) => { // 👈 ✨ 여기에 onReport 추가!
+// 🛍️ 쇼핑 페이지 (수정됨: 모바일 3D 뷰어 높이 제한)
+const ShopPage = ({ isDarkMode, productList, onToggleLike, onProductClick, onReport }) => {
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -634,16 +634,26 @@ const ShopPage = ({ isDarkMode, productList, onToggleLike, onProductClick, onRep
           </div>
         </div>
       </div>
-      <div style={{ height: isMobile ? '350px' : '500px', width: '100%', overflow: 'hidden', borderRadius: '20px', margin: '0 auto' }}>
+      
+      {/* ✨ [수정된 부분] 모바일 높이 제한 (350px) */}
+      <div style={{ 
+        height: isMobile ? '350px' : '500px', 
+        width: '100%', 
+        overflow: 'hidden', 
+        borderRadius: '20px', 
+        margin: '0 auto',
+        border: `1px solid ${theme.cardBorder}`
+      }}>
         <Ad3D isDarkMode={isDarkMode} items={kioskData} mode="SHOP" isMobile={isMobile} />
       </div>
+
       <div style={{ marginTop: '40px' }}>
         <h2 style={{ fontSize: '24px', marginBottom: '20px', paddingBottom: '10px' }}>👇 목록</h2>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap: isMobile ? '10px' : '20px' }}>
           {sortedData.map((item) => (
             <div key={item.id} onClick={() => { onProductClick(item.id); window.open(item.url, '_blank'); }} style={{ padding: '15px', background: theme.cardBg, border: 'none', borderRadius: '10px', textAlign: 'center', cursor: 'pointer', position: 'relative', overflow: 'hidden', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
               
-              {/* ✨ 신고 버튼 (우측 상단, z-index 강화) */}
+              {/* ✨ 신고 버튼 */}
               <button 
                 onClick={(e) => { 
                   e.stopPropagation(); 
@@ -1032,7 +1042,7 @@ const RegisterProductPage = ({ isDarkMode, tokens, onRegister, onBan }) => {
   );
 };
 
-// 💰 토큰 페이지 (수정됨: 결제 취소 버그 방지)
+// 💰 토큰 페이지 (수정됨: 모바일 결제 취소/실패 시 충전 방지 & URL 세탁)
 const TokenPage = ({ isDarkMode, onCharge, user }) => {
   const theme = isDarkMode ? themes.dark : themes.light;
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -1044,27 +1054,29 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
     { id: 4, amount: 50000, bonus: 15000, price: 50000, color: '#00ccff' },
   ];
 
-  // 🔄 모바일 결제 복귀 처리 (보안 강화)
+  // 🔄 모바일 결제 복귀 처리
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+    
+    // URL에 있는 모든 정보 가져오기
     const amountStr = urlParams.get('amount');
-    const errorCode = urlParams.get('error_code'); // 결제 실패 시 붙는 코드
-    const impSuccess = urlParams.get('imp_success'); // 아임포트 성공 여부 (true/false)
+    const impSuccess = urlParams.get('imp_success'); // 결제 성공 여부 (true/false)
+    const errorCode = urlParams.get('error_code');   // 에러 코드
 
-    // 실패했거나 취소했으면 중단
-    if (errorCode || impSuccess === 'false') {
+    // 1. 결제 실패 또는 취소된 경우 (imp_success가 false거나 error_code가 있음)
+    if (impSuccess === 'false' || errorCode) {
       alert("결제가 취소되었거나 실패했습니다.");
-      // URL 청소 (재진입 시 중복 실행 방지)
+      // URL을 깨끗하게 청소 (뒤로가기 해도 기록 안 남게)
       window.history.replaceState({}, document.title, window.location.pathname);
-      return;
+      return; 
     }
 
-    // 성공 파라미터가 있을 때만 충전
-    if (amountStr && !errorCode) {
+    // 2. 성공했을 때만 충전 (imp_success가 없거나 true이면서, 금액이 있을 때)
+    if (amountStr) {
       const amountToAdd = parseInt(amountStr, 10);
       onCharge(amountToAdd);
       alert(`결제 완료! 🎉\n${amountToAdd.toLocaleString()}T가 충전됩니다.`);
-      // ✨ [중요] 처리 후 URL 쿼리 파라미터 즉시 삭제 (뒤로가기 악용 방지)
+      // 처리가 끝나면 URL 꼬리표 즉시 삭제 (중복 충전 방지)
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
@@ -1082,7 +1094,7 @@ const TokenPage = ({ isDarkMode, onCharge, user }) => {
         totalAmount: pkg.price,
         currency: "CURRENCY_KRW",
         payMethod: "CARD",
-        // 모바일 리다이렉트 URL
+        // 모바일 리다이렉트 URL (성공/실패 여부도 같이 옴)
         redirectUrl: `${window.location.origin}/token?amount=${totalTokens}`, 
         customer: { fullName: user?.name || "익명", email: user?.email || "no-email@test.com" },
       });
