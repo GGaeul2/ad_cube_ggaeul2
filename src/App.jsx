@@ -41,12 +41,38 @@ const usePersistedState = (key, defaultValue) => {
   return [state, setState];
 };
 
-// 🖼️ [NEW] 이미지를 저장 가능한 문자열(Base64)로 변환하는 함수
+// 🖼️ [업그레이드] 이미지를 압축해서(용량을 줄여서) 문자열로 변환하는 함수
 const convertToBase64 = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        // 캔버스를 만들어서 이미지 크기 조절 (최대 가로 1024px)
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1024; 
+        let width = img.width;
+        let height = img.height;
+
+        // 이미지가 너무 크면 줄이기
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // ✨ 핵심: JPEG 형식, 퀄리티 0.7(70%)로 압축! (눈엔 똑같은데 용량은 1/10)
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        resolve(compressedDataUrl);
+      };
+    };
     reader.onerror = (error) => reject(error);
   });
 };
@@ -726,12 +752,6 @@ const RegisterAdPage = ({ isDarkMode, tokens, onRegister, onBan }) => {
   const handleImageChange = async (e, type) => {
     const file = e.target.files[0];
     if (file) {
-      // ⚠️ 용량 제한 추가 (2MB 이상이면 등록 거부 - 오류 방지)
-      if (file.size > 2 * 1024 * 1024) {
-        alert("이미지 용량이 너무 큽니다. 2MB 이하로 올려주세요!");
-        return;
-      }
-      
       const base64 = await convertToBase64(file);
       setFormData({ ...formData, [type]: base64 });
     }
@@ -894,12 +914,6 @@ const RegisterProductPage = ({ isDarkMode, tokens, onRegister, onBan }) => {
   const handleImageChange = async (e, type) => {
     const file = e.target.files[0];
     if (file) {
-      // ⚠️ 용량 제한 추가 (2MB 이상이면 등록 거부 - 오류 방지)
-      if (file.size > 2 * 1024 * 1024) {
-        alert("이미지 용량이 너무 큽니다. 2MB 이하로 올려주세요!");
-        return;
-      }
-      
       const base64 = await convertToBase64(file);
       setFormData({ ...formData, [type]: base64 });
     }
